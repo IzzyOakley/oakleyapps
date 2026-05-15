@@ -66,7 +66,7 @@ env:
 
   # ── Backend service URLs ───────────────────────────────────────────────────
   - variable: TAKEOFF_AGENT_URL
-    value: https://takeoff-agent-mmajbn5eka-uc.a.run.app
+    value: https://takeoff-agent-504450312463.us-central1.run.app
     availability:
       - RUNTIME
 
