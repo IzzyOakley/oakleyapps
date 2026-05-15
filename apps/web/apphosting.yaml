@@ -71,6 +71,6 @@ env:
       - RUNTIME
 
   - variable: BID_GENERATOR_URL
-    value: https://bid-generator-mmajbn5eka-uc.a.run.app
+    value: https://bid-generator-504450312463.us-central1.run.app
     availability:
       - RUNTIME
