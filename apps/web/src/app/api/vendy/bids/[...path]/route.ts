@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminAuth } from '@/lib/firebase-admin'
 
+// Never let the CDN cache authenticated proxy responses
+export const dynamic = 'force-dynamic'
+
 const BID_GENERATOR_URL = process.env.BID_GENERATOR_URL ?? 'http://localhost:8090'
 
 // Internal service shared secret — the bid-generator trusts requests carrying this header.

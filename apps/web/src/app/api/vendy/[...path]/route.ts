@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminAuth } from '@/lib/firebase-admin'
 
+// Never let the CDN cache authenticated proxy responses
+export const dynamic = 'force-dynamic'
+
 const TAKEOFF_SERVICE_URL = process.env.TAKEOFF_AGENT_URL ?? 'http://localhost:8001'
 
 // Internal service shared secret — the takeoff-agent trusts requests carrying this header.
