@@ -39,7 +39,7 @@ env:
 
   # Firebase API key — public by design, hardcoded to avoid build-time secret resolution
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyDG5GGwWDLpDud1jSlf2E4qKG0uY38nF8w
+    value: AIzaSyDG5GGwWDLpDudljSlf2E4qKG0uY38nF8w
     availability:
       - BUILD
       - RUNTIME
