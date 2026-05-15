@@ -4,7 +4,7 @@ import { adminAuth } from '@/lib/firebase-admin'
 export async function POST(req: NextRequest) {
   try {
     const { sessionCookie } = await req.json() as { sessionCookie: string }
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, false)
     const role = (decoded as Record<string, unknown>)['role'] as string ?? 'staff'
     return NextResponse.json({ uid: decoded.uid, email: decoded.email, role })
   } catch {

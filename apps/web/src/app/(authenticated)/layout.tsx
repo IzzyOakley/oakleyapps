@@ -9,7 +9,7 @@ async function getUser(): Promise<AuthUser | null> {
   const sessionCookie = cookieStore.get('session')?.value
   if (!sessionCookie) return null
   try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, false)
     return {
       uid: decoded.uid,
       email: decoded.email ?? '',

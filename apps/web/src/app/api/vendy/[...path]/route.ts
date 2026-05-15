@@ -15,7 +15,7 @@ async function proxyToTakeoffAgent(req: NextRequest, params: { path: string[] })
 
   let decoded
   try {
-    decoded = await adminAuth.verifySessionCookie(sessionCookie, true)
+    decoded = await adminAuth.verifySessionCookie(sessionCookie, false)
   } catch {
     return NextResponse.json({ error: 'Invalid session' }, { status: 401 })
   }

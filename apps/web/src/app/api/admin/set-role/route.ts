@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const caller = await adminAuth.verifySessionCookie(sessionCookie, true)
+    const caller = await adminAuth.verifySessionCookie(sessionCookie, false)
     const callerRole = (caller as Record<string, unknown>)['role'] as string
     if (callerRole !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
