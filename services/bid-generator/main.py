@@ -312,18 +312,25 @@ async def approve_bid_route(bid_id: str, user: dict = Depends(require_pm)):
 
 @app.get("/bids/{bid_id}/pdf")
 async def get_bid_pdf(bid_id: str, user: dict = Depends(get_current_user)):
+    from fastapi.responses import Response as FastAPIResponse
+
     bid = fs.get_bid(bid_id)
     if not bid:
         raise HTTPException(status_code=404, detail="Bid not found")
-    if bid.get("pdf_gcs_path"):
-        try:
-            return {"url": pdf.get_pdf_signed_url(bid["pdf_gcs_path"])}
-        except Exception:
-            pass
+
     project = fs.get_project(bid["project_id"]) or {}
-    pdf_bytes = pdf.generate_bid_pdf(bid, project)
-    gcs_path = pdf.upload_bid_pdf(
-        bid["project_id"], bid["vendor_id"], bid["cost_code"], pdf_bytes
+    version = bid.get("version", 1)
+    pdf_bytes = pdf.generate_bid_pdf(bid, project, version=version)
+
+    vendor_slug = (bid.get("vendor_name") or "vendor").replace(" ", "_").lower()
+    project_slug = (bid.get("project_name") or "project").replace(" ", "_").lower()
+    filename = f"bid_{project_slug}_{vendor_slug}_v{version}.pdf"
+
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
-    fs.update_bid_pdf_path(bid_id, gcs_path)
-    return {"url": pdf.get_pdf_signed_url(gcs_path)}

@@ -16,7 +16,7 @@ def get_client():
     return _client
 
 
-def generate_bid_pdf(bid: dict, project: dict) -> bytes:
+def generate_bid_pdf(bid: dict, project: dict, version: int = 1) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -28,13 +28,20 @@ def generate_bid_pdf(bid: dict, project: dict) -> bytes:
         Paragraph,
         Spacer,
         HRFlowable,
+        KeepTogether,
     )
+
+    NAVY = colors.HexColor("#1a2744")
+    MID_GRAY = colors.HexColor("#6b7280")
+    LIGHT_GRAY = colors.HexColor("#e5e7eb")
+    PALE = colors.HexColor("#f9fafb")
+    WHITE = colors.white
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        topMargin=0.75 * inch,
+        topMargin=0.6 * inch,
         bottomMargin=0.75 * inch,
         leftMargin=0.75 * inch,
         rightMargin=0.75 * inch,
@@ -42,151 +49,197 @@ def generate_bid_pdf(bid: dict, project: dict) -> bytes:
     styles = getSampleStyleSheet()
     story = []
 
-    story.append(
+    # ── Header band ───────────────────────────────────────────────────────────
+    # Two-column header: company on left, doc meta on right
+    today = datetime.date.today()
+    doc_id = bid.get("bid_id", "")[:8].upper()
+
+    header_data = [[
         Paragraph(
             "OAKLEY HOME BUILDERS",
-            ParagraphStyle("h1", parent=styles["Heading1"], fontSize=16, spaceAfter=4),
-        )
-    )
-    story.append(
+            ParagraphStyle("co", fontName="Helvetica-Bold", fontSize=15,
+                           textColor=NAVY, leading=18),
+        ),
         Paragraph(
-            f"Bid Request — {bid.get('vendor_name', '')}",
-            ParagraphStyle(
-                "sub",
-                parent=styles["Normal"],
-                fontSize=10,
-                textColor=colors.HexColor("#666666"),
-                spaceAfter=2,
-            ),
-        )
-    )
-    story.append(Spacer(1, 4))
-    story.append(
-        Paragraph(
-            f"Project: {bid.get('project_name', '')}  |  {project.get('address', '')}",
-            ParagraphStyle("label", parent=styles["Normal"], fontSize=10, spaceAfter=2),
-        )
-    )
-    story.append(
-        Paragraph(
-            f"Date: {datetime.date.today().strftime('%B %d, %Y')}",
-            ParagraphStyle(
-                "label2", parent=styles["Normal"], fontSize=10, spaceAfter=2
-            ),
-        )
-    )
-    story.append(
-        Paragraph(
-            f"Cost Code: {bid.get('cost_code', '')} — {bid.get('cost_code_name', '')}",
-            ParagraphStyle(
-                "label3", parent=styles["Normal"], fontSize=10, spaceAfter=2
-            ),
-        )
-    )
+            f"<font size='8' color='#6b7280'>BID REQUEST &nbsp;·&nbsp; "
+            f"v{version} &nbsp;·&nbsp; {today.strftime('%B %d, %Y')}<br/>"
+            f"<font color='#9ca3af'>Doc ID: {doc_id}</font></font>",
+            ParagraphStyle("meta", fontName="Helvetica", fontSize=8,
+                           textColor=MID_GRAY, leading=12, alignment=2),
+        ),
+    ]]
+    header_table = Table(header_data, colWidths=[4.0 * inch, 3.0 * inch])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=2, color=NAVY))
     story.append(Spacer(1, 12))
+
+    # ── Vendor block ──────────────────────────────────────────────────────────
+    vendor_name = bid.get("vendor_name") or "—"
     story.append(
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cccccc"))
+        Paragraph(
+            "VENDOR",
+            ParagraphStyle("lbl", fontName="Helvetica", fontSize=7,
+                           textColor=MID_GRAY, spaceAfter=2,
+                           letterSpacing=1),
+        )
     )
-    story.append(Spacer(1, 8))
+    story.append(
+        Paragraph(
+            vendor_name,
+            ParagraphStyle("vendor", fontName="Helvetica-Bold", fontSize=14,
+                           textColor=NAVY, spaceAfter=2),
+        )
+    )
+    story.append(Spacer(1, 10))
+
+    # ── Project info table ────────────────────────────────────────────────────
+    address = project.get("address") or bid.get("project_name") or "—"
+    info_data = [
+        ["Project", bid.get("project_name") or "—",
+         "Cost Code", f"{bid.get('cost_code', '')} — {bid.get('cost_code_name', '')}"],
+        ["Address", address, "Status", (bid.get("status") or "—").replace("_", " ").title()],
+    ]
+    info_table = Table(info_data, colWidths=[0.85 * inch, 2.65 * inch, 0.85 * inch, 2.65 * inch])
+    info_table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("TEXTCOLOR", (0, 0), (0, -1), MID_GRAY),
+        ("TEXTCOLOR", (2, 0), (2, -1), MID_GRAY),
+        ("TEXTCOLOR", (1, 0), (1, -1), NAVY),
+        ("TEXTCOLOR", (3, 0), (3, -1), NAVY),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, -1), PALE),
+        ("BOX", (0, 0), (-1, -1), 0.5, LIGHT_GRAY),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, LIGHT_GRAY),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 16))
+
+    # ── Line items ────────────────────────────────────────────────────────────
     story.append(
         Paragraph(
             "LINE ITEMS",
-            ParagraphStyle(
-                "section", parent=styles["Heading3"], fontSize=11, spaceAfter=6
-            ),
+            ParagraphStyle("section", fontName="Helvetica-Bold", fontSize=8,
+                           textColor=MID_GRAY, spaceAfter=6, letterSpacing=1),
         )
     )
 
-    col_headers = ["Description", "Qty", "Unit", "Unit Price", "Total"]
+    col_headers = ["Description", "Qty", "Unit", "Unit Price", "Total", "Source"]
     table_data = [col_headers]
     for item in bid.get("line_items", []):
+        qty = item.get("quantity")
         up = item.get("unit_price")
         total = item.get("total")
-        table_data.append(
-            [
-                item.get("description", ""),
-                f"{item.get('quantity', ''):.0f}"
-                if item.get("quantity") is not None
-                else "—",
-                item.get("unit", ""),
-                f"${up:,.2f}" if up is not None else "—",
-                f"${total:,.2f}" if total is not None else "—",
-            ]
-        )
+        source = (item.get("source") or "").replace("_", " ").title()
+        table_data.append([
+            Paragraph(item.get("description", ""),
+                      ParagraphStyle("cell", fontName="Helvetica", fontSize=8, leading=10)),
+            f"{qty:,.0f}" if qty is not None else "—",
+            item.get("unit", ""),
+            f"${up:,.2f}" if up is not None else "—",
+            f"${total:,.2f}" if total is not None else "—",
+            source,
+        ])
+
     subtotal = bid.get("subtotal")
-    table_data.append(
-        ["", "", "", "SUBTOTAL:", f"${subtotal:,.2f}" if subtotal is not None else "—"]
-    )
+    table_data.append([
+        Paragraph("<b>SUBTOTAL</b>",
+                  ParagraphStyle("sub", fontName="Helvetica-Bold", fontSize=8, leading=10)),
+        "", "", "",
+        Paragraph(f"<b>${subtotal:,.2f}</b>" if subtotal is not None else "<b>—</b>",
+                  ParagraphStyle("subamt", fontName="Helvetica-Bold", fontSize=8,
+                                 leading=10, alignment=2)),
+        "",
+    ])
 
-    col_widths = [3.2 * inch, 0.7 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch]
-    t = Table(table_data, colWidths=col_widths)
-    t.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-                ("ALIGN", (0, 0), (0, -1), "LEFT"),
-                ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#cccccc")),
-                ("LINEABOVE", (0, -1), (-1, -1), 0.5, colors.HexColor("#cccccc")),
-                ("FONTNAME", (3, -1), (-1, -1), "Helvetica-Bold"),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -2),
-                    [colors.white, colors.HexColor("#fafafa")],
-                ),
-            ]
-        )
-    )
-    story.append(t)
+    col_widths = [2.9 * inch, 0.55 * inch, 0.55 * inch, 0.85 * inch, 0.85 * inch, 0.8 * inch]
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    row_count = len(table_data)
+    t.setStyle(TableStyle([
+        # Header row
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
+        ("TOPPADDING", (0, 0), (-1, 0), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+        # Data rows
+        ("FONTSIZE", (0, 1), (-1, -1), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        # Alignment
+        ("ALIGN", (1, 0), (4, -1), "RIGHT"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("ALIGN", (5, 0), (5, -1), "CENTER"),
+        # Zebra rows
+        ("ROWBACKGROUNDS", (0, 1), (-1, row_count - 2), [WHITE, PALE]),
+        # Subtotal row
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f0f4ff")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, NAVY),
+        # Grid
+        ("LINEBELOW", (0, 0), (-1, -2), 0.25, LIGHT_GRAY),
+        ("BOX", (0, 0), (-1, -1), 0.5, LIGHT_GRAY),
+    ]))
+    story.append(KeepTogether([t]))
 
+    # ── Generation notes ──────────────────────────────────────────────────────
     gen_notes = bid.get("generation_notes")
     if gen_notes:
         story.append(Spacer(1, 12))
         story.append(
             Paragraph(
-                f"Notes: {gen_notes}",
-                ParagraphStyle(
-                    "notes",
-                    parent=styles["Normal"],
-                    fontSize=8,
-                    textColor=colors.HexColor("#888888"),
-                ),
+                "PRICING NOTES",
+                ParagraphStyle("nlbl", fontName="Helvetica-Bold", fontSize=7,
+                               textColor=MID_GRAY, spaceAfter=4, letterSpacing=1),
+            )
+        )
+        story.append(
+            Paragraph(
+                gen_notes,
+                ParagraphStyle("notes", fontName="Helvetica", fontSize=8,
+                               textColor=colors.HexColor("#374151"),
+                               leading=11,
+                               borderPad=6,
+                               backColor=colors.HexColor("#fffbeb"),
+                               borderColor=colors.HexColor("#fcd34d"),
+                               borderWidth=0.5,
+                               borderRadius=3),
             )
         )
 
+    # ── Footer ────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 20))
-    story.append(
-        HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc"))
-    )
+    story.append(HRFlowable(width="100%", thickness=0.5, color=LIGHT_GRAY))
     story.append(Spacer(1, 8))
     story.append(
         Paragraph(
-            f"This bid was prepared by Oakley Home Builders based on project plans dated "
-            f"{datetime.date.today().strftime('%B %d, %Y')}. "
-            "Please review, confirm quantities, and return signed.",
-            ParagraphStyle(
-                "footer",
-                parent=styles["Normal"],
-                fontSize=8,
-                textColor=colors.HexColor("#666666"),
-            ),
+            f"Prepared by Oakley Home Builders on {today.strftime('%B %d, %Y')} "
+            f"(Document v{version} · Ref: {doc_id}). "
+            "Please review all quantities, confirm scope, and return signed.",
+            ParagraphStyle("footer", fontName="Helvetica", fontSize=7,
+                           textColor=MID_GRAY, leading=10),
         )
     )
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 14))
     sig_t = Table(
-        [["Vendor signature: ________________", "Date: ________"]],
-        colWidths=[4.5 * inch, 2.0 * inch],
+        [["Vendor signature: ______________________________",
+          "Date: ________________"]],
+        colWidths=[4.5 * inch, 2.5 * inch],
     )
-    sig_t.setStyle(
-        TableStyle(
-            [("FONTSIZE", (0, 0), (-1, -1), 9), ("ALIGN", (1, 0), (1, 0), "RIGHT")]
-        )
-    )
+    sig_t.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#374151")),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+    ]))
     story.append(sig_t)
 
     doc.build(story)
@@ -201,11 +254,3 @@ def upload_bid_pdf(project_id, vendor_id, cost_code, pdf_bytes) -> str:
     blob = bucket.blob(gcs_path)
     blob.upload_from_string(pdf_bytes, content_type="application/pdf")
     return gcs_path
-
-
-def get_pdf_signed_url(gcs_path) -> str:
-    client = get_client()
-    blob = client.bucket(BUCKET_NAME).blob(gcs_path)
-    return blob.generate_signed_url(
-        expiration=datetime.timedelta(hours=1), method="GET", version="v4"
-    )

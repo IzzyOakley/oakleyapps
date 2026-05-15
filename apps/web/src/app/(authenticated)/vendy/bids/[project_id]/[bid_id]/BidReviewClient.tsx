@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, Loader2, CheckCircle, Download, Edit2, AlertTriangle, X, Check } from 'lucide-react'
-import { getBid, approveBid, getBidPdfUrl, updateLineItem } from '@/lib/vendy/bids-api'
+import { getBid, approveBid, downloadBidPdf, updateLineItem } from '@/lib/vendy/bids-api'
 import type { Bid, BidLineItem } from '@/lib/vendy/bids-api'
 
 interface Props { projectId: string; bidId: string }
@@ -43,12 +43,15 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
   }
 
   async function handleDownload() {
+    if (!bid) return
     setDownloading(true)
+    setError(null)
     try {
-      const url = await getBidPdfUrl(bidId)
-      window.open(url, '_blank')
+      const filename = `bid_${bid.project_name}_${bid.vendor_name}_v${bid.version ?? 1}.pdf`
+        .replace(/\s+/g, '_').toLowerCase()
+      await downloadBidPdf(bidId, filename)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to get PDF')
+      setError(e instanceof Error ? e.message : 'Failed to download PDF')
     } finally {
       setDownloading(false)
     }

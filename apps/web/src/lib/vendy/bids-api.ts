@@ -27,6 +27,7 @@ export interface Bid {
   approved_by: string | null
   pdf_gcs_path: string | null
   generation_notes: string | null
+  version: number | null
 }
 
 export interface BidSetupVendor {
@@ -117,9 +118,25 @@ export async function approveBid(bidId: string): Promise<void> {
   await fetchBids(`bids/${bidId}/approve`, { method: 'POST' })
 }
 
-export async function getBidPdfUrl(bidId: string): Promise<string> {
-  const data = await fetchBids(`bids/${bidId}/pdf`)
-  return data.url
+/**
+ * Downloads the bid PDF directly as a blob — no signed URL needed.
+ * Returns a temporary object URL the caller should revoke after use.
+ */
+export async function downloadBidPdf(bidId: string, filename: string): Promise<void> {
+  const res = await fetch(`/api/vendy/bids/bids/${bidId}/pdf`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail ?? 'Failed to download PDF')
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 export async function getCostCodesWithVendors(): Promise<BidSetupCostCode[]> {

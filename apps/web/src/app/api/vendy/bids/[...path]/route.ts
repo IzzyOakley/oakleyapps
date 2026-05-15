@@ -57,16 +57,33 @@ async function proxyToBidGenerator(req: NextRequest, params: { path: string[] })
     return NextResponse.json({ detail: hint }, { status: 502 })
   }
 
-  // Forward the response — handle both JSON and plain-text bodies
+  // Forward the response — handle PDF, JSON, and plain-text bodies
+  // Always set no-store so Firebase CDN never caches these authenticated responses.
+  const NO_CACHE = { 'Cache-Control': 'no-store' }
   const contentType = upstream.headers.get('content-type') ?? ''
+
+  // PDF — stream bytes directly so the browser can download without a signed URL
+  if (contentType.includes('application/pdf')) {
+    const pdfBuffer = await upstream.arrayBuffer()
+    const disposition = upstream.headers.get('Content-Disposition') ?? 'attachment; filename="bid.pdf"'
+    return new NextResponse(pdfBuffer, {
+      status: upstream.status,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': disposition,
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+
   if (contentType.includes('application/json')) {
     try {
       const data = await upstream.json()
-      return NextResponse.json(data, { status: upstream.status })
+      return NextResponse.json(data, { status: upstream.status, headers: NO_CACHE })
     } catch {
       return NextResponse.json(
         { detail: `Upstream returned malformed JSON (status ${upstream.status})` },
-        { status: 502 },
+        { status: 502, headers: NO_CACHE },
       )
     }
   }
@@ -75,7 +92,7 @@ async function proxyToBidGenerator(req: NextRequest, params: { path: string[] })
   const text = await upstream.text()
   return NextResponse.json(
     { detail: text || upstream.statusText },
-    { status: upstream.status },
+    { status: upstream.status, headers: NO_CACHE },
   )
 }
 
