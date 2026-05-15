@@ -44,6 +44,12 @@ env:
       - BUILD
       - RUNTIME
 
+  # ── Force pnpm version for Google buildpack ────────────────────────────────
+  - variable: GOOGLE_PNPM_VERSION
+    value: "9.15.9"
+    availability:
+      - BUILD
+
   # ── Firebase Admin (server-side only) ─────────────────────────────────────
   # Uses Application Default Credentials on GCP — no private key needed here.
   - variable: FIREBASE_ADMIN_PROJECT_ID
