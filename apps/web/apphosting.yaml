@@ -1,0 +1,69 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  # ── Firebase client config (public — safe to hardcode) ────────────────────
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: oakley-apps
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: oakley-apps.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: oakley-apps.firebasestorage.app
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "504450312463"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:504450312463:web:5c6e0c460981abe144b67a
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Firebase API key — public by design but stored in Secret Manager for hygiene
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: FIREBASE_API_KEY
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # ── Firebase Admin (server-side only) ─────────────────────────────────────
+  # Uses Application Default Credentials on GCP — no private key needed here.
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    value: oakley-apps
+    availability:
+      - RUNTIME
+
+  # ── Internal service shared secret ────────────────────────────────────────
+  - variable: INTERNAL_SERVICE_SECRET
+    secret: INTERNAL_SERVICE_SECRET
+    availability:
+      - RUNTIME
+
+  # ── Backend service URLs (set in Secret Manager after first deploy) ────────
+  - variable: TAKEOFF_AGENT_URL
+    secret: TAKEOFF_AGENT_URL
+    availability:
+      - RUNTIME
+
+  - variable: BID_GENERATOR_URL
+    secret: BID_GENERATOR_URL
+    availability:
+      - RUNTIME

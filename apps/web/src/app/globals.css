@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-text-primary antialiased;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation: var(--tw-animate-name) var(--tw-animate-duration, 150ms) var(--tw-animate-easing, ease-out) forwards;
+  }
+  .fade-in {
+    --tw-animate-name: fadeIn;
+  }
+}

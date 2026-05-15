@@ -1,0 +1,122 @@
+name: Takeoff Agent — CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/takeoff-agent/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/takeoff-agent/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  IMAGE: us-central1-docker.pkg.dev/oakley-apps/oakley-apps/takeoff-agent
+  SERVICE: takeoff-agent
+  REGION: us-central1
+  PROJECT: oakley-apps
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # CI — lint & type-check Python (runs on PRs and main)
+  # ──────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install linting tools
+        run: pip install ruff
+
+      - name: Ruff lint
+        run: ruff check services/takeoff-agent/
+
+      - name: Ruff format check
+        run: ruff format --check services/takeoff-agent/
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # CD — build, push, deploy  (main branch only)
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            services/takeoff-agent/
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT }} \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --concurrency 10 \
+            --min-instances 0 \
+            --max-instances 5 \
+            --timeout 300 \
+            --port 8080 \
+            --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
+            --set-env-vars "GCS_BUCKET=oakley-documents" \
+            --set-env-vars "GCS_PROJECT=buildertrend-pipeline" \
+            --set-env-vars "PUBSUB_PROJECT=buildertrend-pipeline" \
+            --set-env-vars "ENVIRONMENT=production" \
+            --set-env-vars "MODEL_VERSION=claude-opus-4-6" \
+            --set-env-vars "PROMPT_VERSION=v1" \
+            --set-secrets "ANTHROPIC_API_KEY=anthropic-api-key:latest" \
+            --set-secrets "INTERNAL_SERVICE_SECRET=INTERNAL_SERVICE_SECRET:latest"
+
+      - name: Verify deployment
+        run: |
+          gcloud run services describe ${{ env.SERVICE }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT }} \
+            --format="value(status.url)"

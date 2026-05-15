@@ -1,0 +1,11 @@
+{
+  "name": "margo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'MargO stub — no build in Phase 0'",
+    "dev": "echo 'MargO stub — no dev server in Phase 0'",
+    "type-check": "echo 'ok'",
+    "lint": "echo 'ok'"
+  }
+}

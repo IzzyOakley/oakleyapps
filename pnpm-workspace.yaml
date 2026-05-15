@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'shared/*'
+  - 'services/*'
+allowBuilds:
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
