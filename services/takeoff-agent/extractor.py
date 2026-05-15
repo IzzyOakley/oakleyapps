@@ -28,6 +28,7 @@ def _get_anthropic_api_key() -> str:
 
     # Fetch from Secret Manager (production + cloud dev)
     from google.cloud import secretmanager
+
     project = os.environ.get("GCS_PROJECT", "buildertrend-pipeline")
     secret_name = os.environ.get("ANTHROPIC_SECRET_NAME", "anthropic-api-key")
     client = secretmanager.SecretManagerServiceClient()
@@ -100,6 +101,7 @@ async def run_takeoff(job_id: str, project: dict) -> None:
         # Update Firestore with resolved path if different
         if gcs_path != stored_path:
             from firestore_client import update_project_blueprint
+
             project_id = project.get("project_id", "")
             if project_id:
                 update_project_blueprint(project_id, gcs_path)

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent / ".env")
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -13,7 +14,9 @@ import pdf_client as pdf
 from generator import generate_bid
 from schemas import LineItemUpdate, GenerateBidsRequest
 
-INTERNAL_SERVICE_SECRET = os.environ.get("INTERNAL_SERVICE_SECRET", "oakley-internal-dev")
+INTERNAL_SERVICE_SECRET = os.environ.get(
+    "INTERNAL_SERVICE_SECRET", "oakley-internal-dev"
+)
 
 # ── Section ID → Cost Code mapping ───────────────────────────────────────────
 # Takeoff sections use section_id (e.g. "foundation_concrete") rather than a
@@ -21,25 +24,25 @@ INTERNAL_SERVICE_SECRET = os.environ.get("INTERNAL_SERVICE_SECRET", "oakley-inte
 # Multiple cost codes per section: we use the first one that has vendor coverage.
 SECTION_TO_COST_CODES: dict[str, list[str]] = {
     "foundation_concrete": ["3100", "3000"],
-    "framing":             ["3210", "3000"],
-    "roofing":             ["3400"],
-    "windows_doors":       ["3300", "3310"],
-    "electrical":          ["3800", "3830"],
-    "plumbing":            ["3600", "3610"],
-    "hvac":                ["3700"],
-    "insulation":          ["4700"],
-    "drywall_finishes":    ["5000"],
-    "exterior_finishes":   ["4600", "4100", "4110", "3500"],
-    "excavation":          ["2000"],
-    "site_prep":           ["2000", "1300"],
-    "landscaping":         ["6200", "6310"],
-    "garage":              ["4650"],
-    "flooring":            ["5100", "5120", "5160", "5170"],
-    "interior_finishes":   ["5200", "5400", "5211"],
-    "appliances":          ["5900"],
-    "cabinets":            ["5400", "5500"],
-    "stairs":              ["3900"],
-    "miscellaneous":       ["8200O", "8100O"],
+    "framing": ["3210", "3000"],
+    "roofing": ["3400"],
+    "windows_doors": ["3300", "3310"],
+    "electrical": ["3800", "3830"],
+    "plumbing": ["3600", "3610"],
+    "hvac": ["3700"],
+    "insulation": ["4700"],
+    "drywall_finishes": ["5000"],
+    "exterior_finishes": ["4600", "4100", "4110", "3500"],
+    "excavation": ["2000"],
+    "site_prep": ["2000", "1300"],
+    "landscaping": ["6200", "6310"],
+    "garage": ["4650"],
+    "flooring": ["5100", "5120", "5160", "5170"],
+    "interior_finishes": ["5200", "5400", "5211"],
+    "appliances": ["5900"],
+    "cabinets": ["5400", "5500"],
+    "stairs": ["3900"],
+    "miscellaneous": ["8200O", "8100O"],
 }
 
 
@@ -61,10 +64,15 @@ def _resolve_cost_code(section: dict, biddable: dict) -> str | None:
 
     return None
 
+
 app = FastAPI(title="Bid Generator", version="0.1.0")
-app.add_middleware(CORSMiddleware,
+app.add_middleware(
+    CORSMiddleware,
     allow_origins=["https://oakleyapps.com", "http://localhost:3000"],
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 PM_ROLES = {"admin", "management", "pm"}
 
@@ -75,7 +83,9 @@ async def get_current_user(
     x_internal_secret: str = Header(default=""),
 ) -> dict:
     if x_internal_secret != INTERNAL_SERVICE_SECRET:
-        raise HTTPException(status_code=401, detail="Unauthorized — missing internal secret")
+        raise HTTPException(
+            status_code=401, detail="Unauthorized — missing internal secret"
+        )
     if not x_user_email:
         raise HTTPException(status_code=401, detail="Unauthorized — no user identity")
     return {"email": x_user_email, "role": x_user_role}
@@ -83,7 +93,9 @@ async def get_current_user(
 
 async def require_pm(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role", "staff") not in PM_ROLES:
-        raise HTTPException(status_code=403, detail="Forbidden — PM or admin role required")
+        raise HTTPException(
+            status_code=403, detail="Forbidden — PM or admin role required"
+        )
     return user
 
 
@@ -108,14 +120,18 @@ async def list_project_bids(project_id: str, user: dict = Depends(get_current_us
 
 
 @app.get("/bids/project/{project_id}/setup")
-async def get_project_bid_setup(project_id: str, user: dict = Depends(get_current_user)):
+async def get_project_bid_setup(
+    project_id: str, user: dict = Depends(get_current_user)
+):
     """
     Return the cost codes + available vendors for a project's approved takeoff.
     Used by the frontend vendor-selection screen before generation.
     """
     takeoff = fs.get_approved_takeoff(project_id)
     if not takeoff:
-        raise HTTPException(status_code=404, detail="No approved takeoff found for this project")
+        raise HTTPException(
+            status_code=404, detail="No approved takeoff found for this project"
+        )
 
     biddable = {c["code_id"]: c for c in fs.list_biddable_cost_codes()}
     result = []
@@ -135,19 +151,23 @@ async def get_project_bid_setup(project_id: str, user: dict = Depends(get_curren
                 continue
             categories = vendor.get("pricing_profile", {}).get("categories", {})
             line_count = len(categories.get(cost_code, {}))
-            vendors.append({
-                "vendor_id": vid,
-                "vendor_name": vendor.get("name", vid),
-                "line_item_count": line_count,
-            })
+            vendors.append(
+                {
+                    "vendor_id": vid,
+                    "vendor_name": vendor.get("name", vid),
+                    "line_item_count": line_count,
+                }
+            )
 
         if vendors:
-            result.append({
-                "cost_code": cost_code,
-                "cost_code_name": code_doc.get("name", ""),
-                "takeoff_item_count": len(takeoff_items),
-                "vendors": vendors,
-            })
+            result.append(
+                {
+                    "cost_code": cost_code,
+                    "cost_code_name": code_doc.get("name", ""),
+                    "takeoff_item_count": len(takeoff_items),
+                    "vendors": vendors,
+                }
+            )
 
     return {
         "project_id": project_id,
@@ -164,10 +184,14 @@ async def generate_project_bids(
 ):
     takeoff = fs.get_approved_takeoff(project_id)
     if not takeoff:
-        raise HTTPException(status_code=400, detail="No approved takeoff found for this project")
+        raise HTTPException(
+            status_code=400, detail="No approved takeoff found for this project"
+        )
 
     project = fs.get_project(project_id)
-    project_name = takeoff.get("project_name") or (project.get("job_name", "") if project else "")
+    project_name = takeoff.get("project_name") or (
+        project.get("job_name", "") if project else ""
+    )
     biddable = {c["code_id"]: c for c in fs.list_biddable_cost_codes()}
 
     # Vendor selection override from request body (keyed by cost_code)
@@ -184,7 +208,9 @@ async def generate_project_bids(
             continue
         code_doc = biddable[cost_code]
         # Use caller's selection if provided, else all vendors on the cost code
-        vendor_ids = selection.get(cost_code) if selection else code_doc.get("vendors", [])
+        vendor_ids = (
+            selection.get(cost_code) if selection else code_doc.get("vendors", [])
+        )
         takeoff_items = section.get("items", [])
         if not takeoff_items or not vendor_ids:
             continue
@@ -197,16 +223,24 @@ async def generate_project_bids(
             vendor_name = vendor.get("name", vendor_id)
             vendors_invited.add(vendor_id)
             bid_id = fs.create_bid(
-                project_id=project_id, project_name=project_name,
-                vendor_id=vendor_id, vendor_name=vendor_name,
-                cost_code=cost_code, cost_code_name=code_doc.get("name", ""),
+                project_id=project_id,
+                project_name=project_name,
+                vendor_id=vendor_id,
+                vendor_name=vendor_name,
+                cost_code=cost_code,
+                cost_code_name=code_doc.get("name", ""),
             )
             bid_ids_created.append(bid_id)
-            tasks.append(_run_bid_generation(
-                bid_id=bid_id, takeoff_items=takeoff_items,
-                vendor_profile=vendor, cost_code=cost_code,
-                cost_code_name=code_doc.get("name", ""), vendor_id=vendor_id,
-            ))
+            tasks.append(
+                _run_bid_generation(
+                    bid_id=bid_id,
+                    takeoff_items=takeoff_items,
+                    vendor_profile=vendor,
+                    cost_code=cost_code,
+                    cost_code_name=code_doc.get("name", ""),
+                    vendor_id=vendor_id,
+                )
+            )
 
     if tasks:
         asyncio.create_task(_gather_all(tasks))
@@ -223,16 +257,23 @@ async def _gather_all(tasks):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _run_bid_generation(bid_id, takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id):
+async def _run_bid_generation(
+    bid_id, takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id
+):
     try:
         result = await generate_bid(
-            takeoff_items=takeoff_items, vendor_profile=vendor_profile,
-            cost_code=cost_code, cost_code_name=cost_code_name, vendor_id=vendor_id,
+            takeoff_items=takeoff_items,
+            vendor_profile=vendor_profile,
+            cost_code=cost_code,
+            cost_code_name=cost_code_name,
+            vendor_id=vendor_id,
         )
         line_items = result.get("line_items", [])
         for item in line_items:
             item.setdefault("takeoff_ref", "")
-        fs.update_bid_with_result(bid_id, line_items, result.get("subtotal"), result.get("generation_notes"))
+        fs.update_bid_with_result(
+            bid_id, line_items, result.get("subtotal"), result.get("generation_notes")
+        )
     except Exception as e:
         fs.update_bid_status_failed(bid_id, str(e))
 
@@ -246,8 +287,12 @@ async def get_bid(bid_id: str, user: dict = Depends(get_current_user)):
 
 
 @app.patch("/bids/{bid_id}/line-items/{idx}")
-async def update_line_item(bid_id: str, idx: int, body: LineItemUpdate, user: dict = Depends(require_pm)):
-    updated = fs.update_line_item(bid_id, idx, body.unit_price, body.quantity, body.notes)
+async def update_line_item(
+    bid_id: str, idx: int, body: LineItemUpdate, user: dict = Depends(require_pm)
+):
+    updated = fs.update_line_item(
+        bid_id, idx, body.unit_price, body.quantity, body.notes
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Bid or line item not found")
     return {"status": "ok", "bid_id": bid_id, "idx": idx}
@@ -277,6 +322,8 @@ async def get_bid_pdf(bid_id: str, user: dict = Depends(get_current_user)):
             pass
     project = fs.get_project(bid["project_id"]) or {}
     pdf_bytes = pdf.generate_bid_pdf(bid, project)
-    gcs_path = pdf.upload_bid_pdf(bid["project_id"], bid["vendor_id"], bid["cost_code"], pdf_bytes)
+    gcs_path = pdf.upload_bid_pdf(
+        bid["project_id"], bid["vendor_id"], bid["cost_code"], pdf_bytes
+    )
     fs.update_bid_pdf_path(bid_id, gcs_path)
     return {"url": pdf.get_pdf_signed_url(gcs_path)}

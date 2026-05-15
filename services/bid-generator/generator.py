@@ -7,6 +7,7 @@ from json_repair import repair_json
 
 _client = None
 
+
 def get_client():
     global _client
     if _client is None:
@@ -18,8 +19,11 @@ def _load_system_prompt() -> str:
     return (Path(__file__).parent / "prompts" / "bid_v1.md").read_text()
 
 
-async def generate_bid(takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id) -> dict:
+async def generate_bid(
+    takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id
+) -> dict:
     import asyncio
+
     system_prompt = _load_system_prompt()
     categories = vendor_profile.get("pricing_profile", {}).get("categories", {})
     vendor_history = categories.get(cost_code, {})
@@ -27,15 +31,17 @@ async def generate_bid(takeoff_items, vendor_profile, cost_code, cost_code_name,
     vendor_lines = []
     for line_name, line_data in vendor_history.items():
         ext = line_data.get("extension", {})
-        vendor_lines.append({
-            "name": line_name,
-            "unit": line_data.get("unit", ""),
-            "description": line_data.get("description", ""),
-            "avg": ext.get("avg"),
-            "min": ext.get("min"),
-            "max": ext.get("max"),
-            "sample_count": ext.get("sample_count", 0),
-        })
+        vendor_lines.append(
+            {
+                "name": line_name,
+                "unit": line_data.get("unit", ""),
+                "description": line_data.get("description", ""),
+                "avg": ext.get("avg"),
+                "min": ext.get("min"),
+                "max": ext.get("max"),
+                "sample_count": ext.get("sample_count", 0),
+            }
+        )
 
     user_message = f"""Cost Code: {cost_code} — {cost_code_name}
 

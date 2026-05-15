@@ -43,10 +43,7 @@ def scan_all_projects() -> dict[str, str | None]:
     # Collect folder prefixes
     top_blobs = client.list_blobs(BUCKET_NAME, prefix="projects/", delimiter="/")
     list(top_blobs)  # exhaust to populate .prefixes
-    folder_names = [
-        p.rstrip("/").split("/", 1)[1]
-        for p in top_blobs.prefixes
-    ]
+    folder_names = [p.rstrip("/").split("/", 1)[1] for p in top_blobs.prefixes]
 
     # One more scan for all PDFs anywhere under projects/ (blueprints/ subfolder or root)
     pdf_by_folder: dict[str, str] = {}
@@ -124,8 +121,11 @@ def get_blueprint_page_images(gcs_path: str, job_name: str) -> list[dict]:
     sentinel_blob = bucket.blob(sentinel)
     if sentinel_blob.exists():
         existing = sorted(
-            [b for b in client.list_blobs(BUCKET_NAME, prefix=pages_prefix)
-             if b.name.lower().endswith(".png")],
+            [
+                b
+                for b in client.list_blobs(BUCKET_NAME, prefix=pages_prefix)
+                if b.name.lower().endswith(".png")
+            ],
             key=lambda b: b.name,
         )
         pages = []
@@ -140,13 +140,15 @@ def get_blueprint_page_images(gcs_path: str, job_name: str) -> list[dict]:
                 page_num = int(blob.name.rsplit("page_", 1)[1].split(".")[0])
             except (IndexError, ValueError):
                 page_num = len(pages) + 1
-            pages.append({
-                "page_number": page_num,
-                "url": url,
-                # Width/height not available without downloading; omit for cache hits
-                "width": None,
-                "height": None,
-            })
+            pages.append(
+                {
+                    "page_number": page_num,
+                    "url": url,
+                    # Width/height not available without downloading; omit for cache hits
+                    "width": None,
+                    "height": None,
+                }
+            )
         return pages
 
     # ── Cache miss: render PDF and upload PNGs ────────────────────────────────
@@ -178,12 +180,14 @@ def get_blueprint_page_images(gcs_path: str, job_name: str) -> list[dict]:
             version="v4",
         )
 
-        pages.append({
-            "page_number": page_num,
-            "url": url,
-            "width": pix.width,
-            "height": pix.height,
-        })
+        pages.append(
+            {
+                "page_number": page_num,
+                "url": url,
+                "width": pix.width,
+                "height": pix.height,
+            }
+        )
 
     doc.close()
     return pages

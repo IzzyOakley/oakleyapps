@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Load .env file before anything else so GOOGLE_APPLICATION_CREDENTIALS etc. are set
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent / ".env")
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -19,7 +20,9 @@ from schemas import CreateProjectRequest, UpdateItemRequest
 # All requests originate from the Next.js proxy which has already verified the
 # Firebase session cookie. We authenticate internal traffic with a shared
 # secret header rather than a second JWT round-trip.
-INTERNAL_SERVICE_SECRET = os.environ.get("INTERNAL_SERVICE_SECRET", "oakley-internal-dev")
+INTERNAL_SERVICE_SECRET = os.environ.get(
+    "INTERNAL_SERVICE_SECRET", "oakley-internal-dev"
+)
 
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Takeoff Agent", version="0.1.0")
@@ -46,7 +49,9 @@ async def get_current_user(
     this service is not directly reachable from the public internet.
     """
     if x_internal_secret != INTERNAL_SERVICE_SECRET:
-        raise HTTPException(status_code=401, detail="Unauthorized — missing internal secret")
+        raise HTTPException(
+            status_code=401, detail="Unauthorized — missing internal secret"
+        )
     if not x_user_email:
         raise HTTPException(status_code=401, detail="Unauthorized — no user identity")
     return {"email": x_user_email, "role": x_user_role}
@@ -55,11 +60,14 @@ async def get_current_user(
 async def require_pm(user: dict = Depends(get_current_user)) -> dict:
     role = user.get("role", "staff")
     if role not in PM_ROLES:
-        raise HTTPException(status_code=403, detail="Forbidden — PM or admin role required")
+        raise HTTPException(
+            status_code=403, detail="Forbidden — PM or admin role required"
+        )
     return user
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 def health():
@@ -67,6 +75,7 @@ def health():
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────
+
 
 @app.get("/projects")
 async def list_projects(user: dict = Depends(get_current_user)) -> list[dict]:
@@ -105,16 +114,20 @@ async def list_projects(user: dict = Depends(get_current_user)) -> list[dict]:
         if project_id == "_schema":
             continue
         entry = merged.get(project_id, {})
-        entry.update({
-            "project_id": project_id,
-            "job_name": p.get("job_name") or entry.get("job_name", ""),
-            "address": p.get("address") or entry.get("address", ""),
-            "status": p.get("status", "open"),
-            "has_blueprint": bool(p.get("blueprint_gcs_path")) or entry.get("has_blueprint", False),
-            "blueprint_gcs_path": p.get("blueprint_gcs_path") or entry.get("blueprint_gcs_path"),
-            "flags": p.get("flags") or {},
-            "_from_gcs": False,
-        })
+        entry.update(
+            {
+                "project_id": project_id,
+                "job_name": p.get("job_name") or entry.get("job_name", ""),
+                "address": p.get("address") or entry.get("address", ""),
+                "status": p.get("status", "open"),
+                "has_blueprint": bool(p.get("blueprint_gcs_path"))
+                or entry.get("has_blueprint", False),
+                "blueprint_gcs_path": p.get("blueprint_gcs_path")
+                or entry.get("blueprint_gcs_path"),
+                "flags": p.get("flags") or {},
+                "_from_gcs": False,
+            }
+        )
         merged[project_id] = entry
 
     # ── Attach job status (batch query — one round-trip for all projects) ──────
@@ -126,16 +139,18 @@ async def list_projects(user: dict = Depends(get_current_user)) -> list[dict]:
     for project_id, p in merged.items():
         job = jobs_by_project.get(project_id) if not p.get("_from_gcs") else None
         takeoff_status = _derive_takeoff_status(p, job)
-        result.append({
-            "project_id": project_id,
-            "job_name": p["job_name"],
-            "address": p["address"],
-            "status": p["status"],
-            "has_blueprint": p["has_blueprint"],
-            "takeoff_status": takeoff_status,
-            "takeoff_job_id": job["job_id"] if job else None,
-            "flags": p["flags"],
-        })
+        result.append(
+            {
+                "project_id": project_id,
+                "job_name": p["job_name"],
+                "address": p["address"],
+                "status": p["status"],
+                "has_blueprint": p["has_blueprint"],
+                "takeoff_status": takeoff_status,
+                "takeoff_job_id": job["job_id"] if job else None,
+                "flags": p["flags"],
+            }
+        )
 
     # Sort: jobs with activity first, then alphabetically
     result.sort(key=lambda x: (x["takeoff_status"] == "none", x["job_name"].lower()))
@@ -145,6 +160,7 @@ async def list_projects(user: dict = Depends(get_current_user)) -> list[dict]:
 @app.get("/projects/{project_id}")
 async def get_project(project_id: str, user: dict = Depends(get_current_user)) -> dict:
     import re
+
     project = fs.get_project(project_id)
 
     # Auto-register on first visit if project only exists in GCS
@@ -206,6 +222,7 @@ async def get_blueprint_pages(
     project_id: str, user: dict = Depends(get_current_user)
 ) -> dict:
     import re
+
     project = fs.get_project(project_id)
 
     # Auto-register GCS-discovered project on first visit
@@ -228,11 +245,15 @@ async def get_blueprint_pages(
 
     gcs_path = project.get("blueprint_gcs_path")
     if not gcs_path:
-        raise HTTPException(status_code=404, detail="No blueprint uploaded for this project")
+        raise HTTPException(
+            status_code=404, detail="No blueprint uploaded for this project"
+        )
 
     resolved = gcs.resolve_blueprint_path(project["job_name"], gcs_path)
     if not resolved:
-        raise HTTPException(status_code=404, detail="Blueprint file not found in storage")
+        raise HTTPException(
+            status_code=404, detail="Blueprint file not found in storage"
+        )
 
     pages = gcs.get_blueprint_page_images(resolved, project["job_name"])
     return {"pages": pages}
@@ -245,6 +266,7 @@ async def start_takeoff(
     user: dict = Depends(require_pm),
 ) -> dict:
     import re
+
     project = fs.get_project(project_id)
 
     # Auto-register GCS-discovered projects on first interaction
@@ -263,7 +285,9 @@ async def start_takeoff(
         raise HTTPException(status_code=404, detail="Project not found")
 
     if not project.get("blueprint_gcs_path"):
-        raise HTTPException(status_code=400, detail="No blueprint uploaded — upload a PDF first")
+        raise HTTPException(
+            status_code=400, detail="No blueprint uploaded — upload a PDF first"
+        )
 
     job_id = fs.create_job(project_id, user.get("email", ""))
 
@@ -284,6 +308,7 @@ def run_takeoff_sync(job_id: str, project: dict) -> None:
     """Sync wrapper for extractor since extractor uses sync anthropic client."""
     from extractor import run_takeoff as _run
     import asyncio as _asyncio
+
     loop = _asyncio.new_event_loop()
     try:
         loop.run_until_complete(_run(job_id, project))
@@ -292,6 +317,7 @@ def run_takeoff_sync(job_id: str, project: dict) -> None:
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────
+
 
 @app.get("/jobs/{job_id}")
 async def get_job(job_id: str, user: dict = Depends(get_current_user)) -> dict:
@@ -309,9 +335,13 @@ async def update_item(
     user: dict = Depends(require_pm),
 ) -> dict:
     if body.status not in ("confirmed", "overridden"):
-        raise HTTPException(status_code=400, detail="status must be 'confirmed' or 'overridden'")
+        raise HTTPException(
+            status_code=400, detail="status must be 'confirmed' or 'overridden'"
+        )
 
-    updated = fs.update_item_in_job(job_id, item_id, body.pm_override, body.notes, body.status)
+    updated = fs.update_item_in_job(
+        job_id, item_id, body.pm_override, body.notes, body.status
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Job or item not found")
 
@@ -376,6 +406,7 @@ async def approve_job(job_id: str, user: dict = Depends(require_pm)) -> dict:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _derive_takeoff_status(project: dict, job: dict | None) -> str:
     if not job:
         return "none"
@@ -389,7 +420,9 @@ def _derive_takeoff_status(project: dict, job: dict | None) -> str:
                 age = (datetime.now(timezone.utc) - created_at).total_seconds()
                 if age > 900:  # 15 minutes
                     try:
-                        fs.update_job_status(job["job_id"], "failed", error="Timed out after 15 minutes")
+                        fs.update_job_status(
+                            job["job_id"], "failed", error="Timed out after 15 minutes"
+                        )
                     except Exception:
                         pass
                     return "none"
@@ -402,7 +435,13 @@ def _derive_takeoff_status(project: dict, job: dict | None) -> str:
     try:
         project_id = project.get("project_id", "")
         db = fs.get_db()
-        doc = db.collection("apps").document("shared").collection("takeoffs").document(project_id).get()
+        doc = (
+            db.collection("apps")
+            .document("shared")
+            .collection("takeoffs")
+            .document(project_id)
+            .get()
+        )
         if doc.exists:
             return "approved"
     except Exception:
