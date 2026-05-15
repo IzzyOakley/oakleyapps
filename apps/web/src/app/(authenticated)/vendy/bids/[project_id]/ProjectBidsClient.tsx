@@ -7,7 +7,7 @@ import {
   X, Users, ArrowRight, ChevronRight, FileText,
 } from 'lucide-react'
 import {
-  getProjectBids, getProjectBidSetup, generateBids, approveBid, getBidPdfUrl,
+  getProjectBids, getProjectBidSetup, generateBids, approveBid, downloadBidPdf,
 } from '@/lib/vendy/bids-api'
 import type { Bid, BidSetup, BidSetupCostCode } from '@/lib/vendy/bids-api'
 
@@ -438,10 +438,11 @@ function BidsMatrix({
   async function handleDownload(bid: Bid) {
     setDownloadingIds(prev => new Set(prev).add(bid.bid_id))
     try {
-      const url = await getBidPdfUrl(bid.bid_id)
-      window.open(url, '_blank')
+      const filename = `bid_${bid.project_name}_${bid.vendor_name}_v${bid.version ?? 1}.pdf`
+        .replace(/\s+/g, '_').toLowerCase()
+      await downloadBidPdf(bid.bid_id, filename)
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Failed to get PDF')
+      onError(e instanceof Error ? e.message : 'Failed to download PDF')
     } finally {
       setDownloadingIds(prev => { const n = new Set(prev); n.delete(bid.bid_id); return n })
     }
