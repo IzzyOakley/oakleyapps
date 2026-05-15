@@ -60,7 +60,7 @@ env:
   # ── Internal service shared secret ────────────────────────────────────────
   # NOTE: Temporarily hardcoded for diagnostic build — restore secrets after confirmed working
   - variable: INTERNAL_SERVICE_SECRET
-    value: oakley-internal-dev
+    value: oakley-internal-prod-2024
     availability:
       - RUNTIME
 
