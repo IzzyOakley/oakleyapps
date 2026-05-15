@@ -37,9 +37,9 @@ env:
       - BUILD
       - RUNTIME
 
-  # Firebase API key — public by design but stored in Secret Manager for hygiene
+  # Firebase API key — public by design, hardcoded to avoid build-time secret resolution
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    secret: FIREBASE_API_KEY
+    value: AIzaSyDG5GGwWDLpDud1jSlf2E4qKG0uY38nF8w
     availability:
       - BUILD
       - RUNTIME
