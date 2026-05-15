@@ -1,7 +1,6 @@
 import asyncio
 import os
 from datetime import datetime, timezone
-from typing import Annotated
 from pathlib import Path
 
 # Load .env file before anything else so GOOGLE_APPLICATION_CREDENTIALS etc. are set
@@ -14,8 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import firestore_client as fs
 import gcs_client as gcs
 import pubsub_client as ps
-from extractor import run_takeoff
-from schemas import CreateProjectRequest, ProjectResponse, UpdateItemRequest
+from schemas import CreateProjectRequest, UpdateItemRequest
 
 # ── Internal service secret ──────────────────────────────────────────────────
 # All requests originate from the Next.js proxy which has already verified the

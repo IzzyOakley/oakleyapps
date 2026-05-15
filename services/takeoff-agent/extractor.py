@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import json
 import os
@@ -7,8 +6,8 @@ from pathlib import Path
 
 import anthropic
 
-from firestore_client import get_job, update_job_status, write_takeoff_data
-from gcs_client import resolve_blueprint_path, download_blueprint, get_client, BUCKET_NAME
+from firestore_client import update_job_status, write_takeoff_data
+from gcs_client import resolve_blueprint_path, download_blueprint
 
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "claude-opus-4-5")
 PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "v1")
