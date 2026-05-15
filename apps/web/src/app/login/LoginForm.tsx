@@ -1,12 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { signInWithPopup } from 'firebase/auth'
 import { auth, googleProvider } from '@/lib/firebase-client'
 
 export default function LoginForm() {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,8 +34,9 @@ export default function LoginForm() {
         throw new Error('Failed to create session')
       }
 
-      router.push('/dashboard')
-      router.refresh()
+      // Hard navigation ensures the session cookie is committed before the
+      // next request hits the middleware (router.push is too fast).
+      window.location.href = '/dashboard'
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
