@@ -309,7 +309,7 @@ function TakeoffSectionCard({ section, collapsed, onToggle, isApproved, onItemRe
                     isApproved={isApproved}
                     isFirstFlagged={isFirstFlagged}
                     firstFlaggedRef={firstFlaggedRef}
-                    onToggle={() => !isApproved && isFlagged && setExpandedItem(isExpanded ? null : item.item_id)}
+                    onToggle={() => !isApproved && setExpandedItem(isExpanded ? null : item.item_id)}
                     onResolved={(qty, notes, status) => {
                       onItemResolved(section.section_id, item.item_id, qty, notes, status)
                       setExpandedItem(null)
@@ -345,7 +345,7 @@ function ItemRow({ item, isFlagged, isExpanded, isApproved, isFirstFlagged, firs
         className={`border-t border-border transition-colors duration-100 ${
           isFlagged
             ? 'bg-warning/5 border-l-2 border-l-warning cursor-pointer hover:bg-warning/10'
-            : 'hover:bg-surface-raised/50'
+            : isApproved ? '' : 'cursor-pointer hover:bg-surface-raised/50'
         } ${isApproved ? 'cursor-default' : ''}`}
       >
         <td className="px-6 py-3 text-text-primary">{item.description}</td>
@@ -361,7 +361,7 @@ function ItemRow({ item, isFlagged, isExpanded, isApproved, isFirstFlagged, firs
       {isExpanded && !isApproved && (
         <tr className="border-t border-warning/30">
           <td colSpan={5} className="p-0">
-            <InlineEditPanel item={item} jobId={jobId} onResolved={onResolved} onCancel={onToggle} />
+            <InlineEditPanel item={item} isFlagged={isFlagged} jobId={jobId} onResolved={onResolved} onCancel={onToggle} />
           </td>
         </tr>
       )}
@@ -382,8 +382,9 @@ function StatusBadge({ status, flagged }: { status: string; flagged: boolean }) 
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success/15 text-success"><CheckCircle size={11} /> Extracted</span>
 }
 
-function InlineEditPanel({ item, jobId, onResolved, onCancel }: {
+function InlineEditPanel({ item, isFlagged, jobId, onResolved, onCancel }: {
   item: TakeoffItem
+  isFlagged: boolean
   jobId: string
   onResolved: (qty: number | null, notes: string, status: 'confirmed' | 'overridden') => void
   onCancel: () => void
@@ -425,7 +426,9 @@ function InlineEditPanel({ item, jobId, onResolved, onCancel }: {
     <div className="bg-surface-raised border-t border-warning/30 px-6 py-4 animate-in fade-in duration-150">
       <p className="text-sm font-medium text-text-primary mb-1">{item.description}</p>
       <p className="text-xs text-text-muted mb-4">
-        Claude could not determine this quantity from the plans. Enter it manually or mark as not applicable.
+        {isFlagged
+          ? 'Claude estimated this quantity — verify and confirm, or enter a corrected value.'
+          : 'Override the AI-extracted value if needed, or confirm it as-is.'}
       </p>
       <div className="flex flex-wrap items-end gap-4">
         <div>
