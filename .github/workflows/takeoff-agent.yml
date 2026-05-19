@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'services/takeoff-agent/**'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
