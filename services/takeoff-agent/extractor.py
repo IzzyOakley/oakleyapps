@@ -55,9 +55,8 @@ def assign_item_ids(data: dict) -> dict:
         for item in section.get("items", []):
             item["item_id"] = str(uuid.uuid4())
             item["pm_override"] = None
-            if item.get("flagged") or item.get("quantity") is None:
+            if item.get("flagged"):
                 item["status"] = "flagged"
-                item["flagged"] = True
             else:
                 item["status"] = "extracted"
     return data

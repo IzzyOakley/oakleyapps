@@ -51,11 +51,11 @@ SECTIONS TO EXTRACT (use these section_ids and titles exactly):
 
 EXTRACTION RULES:
 1. Extract every quantifiable item. Do not skip items that seem minor.
-2. If you can measure or count precisely from the plans, provide the number.
-3. If quantity requires engineering drawings not in this set, set quantity=null and flagged=true.
+2. If you can measure or count precisely from the plans, provide the number. Set flagged=false.
+3. If a quantity cannot be precisely measured (missing dimensions, requires engineering calcs, or not clearly shown on these sheets), make your best estimate using all available context — floor areas, perimeter lengths, story heights, room counts, and typical ratios for Chicago-area custom homes at this scale. Set flagged=true and explain your reasoning in notes (e.g., "Estimated ~180 LF based on basement perimeter derived from floor plan; verify against foundation plan").
 4. Cite the exact plan sheet(s) for every item.
 5. Copy item descriptions verbatim from the plans where possible.
-6. Never guess quantities — if uncertain, set null and flag it.
+6. Never return null for quantity. Every item must have a number — either measured (flagged=false) or estimated (flagged=true). flagged=true means the PM should verify the value, not that it is unknown.
 7. Areas (SF): measure from floor plans using stated dimensions.
-8. Linear items (LF): measure from plans or elevations.
-9. Counts (EA): count every instance shown on the plans.
+8. Linear items (LF): measure from plans or elevations; derive perimeters from floor plan geometry when full dimensions are not annotated.
+9. Counts (EA): count every instance shown on the plans; for items not individually called out, estimate based on typical practice for a house of this size and note the assumption.
