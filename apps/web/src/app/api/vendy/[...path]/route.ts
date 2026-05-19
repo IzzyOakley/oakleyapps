@@ -10,6 +10,19 @@ const TAKEOFF_SERVICE_URL = process.env.TAKEOFF_AGENT_URL ?? 'http://localhost:8
 // Keeps internal traffic authenticated without needing a full JWT round-trip.
 const INTERNAL_SERVICE_SECRET = process.env.INTERNAL_SERVICE_SECRET ?? 'oakley-internal-dev'
 
+// Fetch a Google identity token from the GCE metadata server for Cloud Run service-to-service auth.
+// Only called in production (https:// URLs). Returns null in local dev or on error.
+async function getGoogleIdentityToken(audience: string): Promise<string | null> {
+  try {
+    const url = `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(audience)}&format=full`
+    const res = await fetch(url, { headers: { 'Metadata-Flavor': 'Google' } })
+    if (!res.ok) return null
+    return await res.text()
+  } catch {
+    return null
+  }
+}
+
 async function proxyToTakeoffAgent(req: NextRequest, params: { path: string[] }): Promise<NextResponse> {
   const sessionCookie = req.cookies.get('session')?.value
   if (!sessionCookie) {
@@ -34,6 +47,13 @@ async function proxyToTakeoffAgent(req: NextRequest, params: { path: string[] })
     'X-User-Email': decoded.email ?? '',
     'X-User-Role': role,
     'X-Internal-Secret': INTERNAL_SERVICE_SECRET,
+  }
+
+  // Cloud Run with --no-allow-unauthenticated requires a Google identity token.
+  // Fetch one from the metadata server when running on GCP (production only).
+  if (TAKEOFF_SERVICE_URL.startsWith('https://')) {
+    const idToken = await getGoogleIdentityToken(TAKEOFF_SERVICE_URL)
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`
   }
 
   const isFormData = req.headers.get('content-type')?.includes('multipart/form-data')
