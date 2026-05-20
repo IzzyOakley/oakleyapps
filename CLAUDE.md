@@ -22,7 +22,7 @@ Work entirely within the existing monorepo.
 |-------|------|--------|
 | 0 | Foundation | ✅ Complete |
 | 1 | Takeoff Feature | ✅ Complete — live in production |
-| 2 | Cloud Run Deployment | 🔄 In progress |
+| 2 | Cloud Run Deployment | ✅ Complete |
 | 3 | Bid Generator | ⬜ Not started |
 | 4 | Vendor Intelligence | ⬜ Not started |
 | 5 | Bid Lifecycle | ⬜ Not started |
