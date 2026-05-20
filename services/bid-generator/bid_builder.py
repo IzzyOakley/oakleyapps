@@ -188,6 +188,7 @@ async def build_bid_for_vendor(
     cost_code: str,
     cost_code_name: str,
     vendor_id: str,
+    notes_context: dict | None = None,
 ) -> dict:
     """
     Build one bid using priority-ordered pricing context.
@@ -231,9 +232,17 @@ async def build_bid_for_vendor(
                 f"'{item.get('description', '')}': no pricing history — estimated."
             )
 
+    notes_block = ""
+    if notes_context:
+        notes_block = (
+            f"PROJECT NOTES CONTEXT:\n"
+            f"{json.dumps(notes_context, indent=2, default=str)}\n\n"
+        )
+
     user_message = (
         f"Cost Code: {cost_code} — {cost_code_name}\n"
         f"Vendor: {vendor_name}\n\n"
+        f"{notes_block}"
         f"PRICING CONTEXT (priority-ordered per item):\n"
         f"{json.dumps(pricing_context, indent=2, default=str)}\n\n"
         "Generate the bid line items for this vendor."
@@ -292,6 +301,8 @@ async def process_approved_takeoff(project_id: str) -> dict:
     import asyncio
 
     import firestore_client as fs
+    import gcs_client as gcs
+    import notes_analyzer as na
 
     logger.info("process_approved_takeoff start project=%s", project_id)
 
@@ -301,6 +312,25 @@ async def process_approved_takeoff(project_id: str) -> dict:
         return {"skipped": True, "reason": "no_approved_takeoff"}
 
     project_name = takeoff.get("project_name", "")
+
+    # Auto-detect and analyze project notes from GCS
+    notes_context: dict | None = None
+    project = fs.get_project(project_id)
+    if project:
+        job_name = project.get("job_name", project_id)
+        notes_path = gcs.find_project_notes(job_name)
+        if notes_path:
+            try:
+                pdf_bytes = gcs.download_bytes(notes_path)
+                notes_context = await na.analyze_project_notes(pdf_bytes, project_name)
+                logger.info(
+                    "notes loaded for pubsub project=%s path=%s", project_id, notes_path
+                )
+            except Exception as exc:
+                logger.warning(
+                    "notes analysis failed (pubsub) project=%s: %s", project_id, exc
+                )
+
     biddable = {c["code_id"]: c for c in fs.list_biddable_cost_codes()}
 
     tasks = []
@@ -338,6 +368,7 @@ async def process_approved_takeoff(project_id: str) -> dict:
                 cc=cost_code,
                 ccn=ccname,
                 vid=vid,
+                nc=notes_context,
             ):
                 try:
                     result = await build_bid_for_vendor(
@@ -347,6 +378,7 @@ async def process_approved_takeoff(project_id: str) -> dict:
                         cost_code=cc,
                         cost_code_name=ccn,
                         vendor_id=vid,
+                        notes_context=nc,
                     )
                     flags = result.pop("_flags", [])
                     fs.update_bid_with_result(

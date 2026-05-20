@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Loader2, Download, CheckCircle, AlertTriangle,
-  X, ArrowRight, FileText, Sparkles, Plus, Search,
+  X, ArrowRight, FileText, Sparkles, Plus, Search, Upload, BookOpen,
 } from 'lucide-react'
 import {
   getProjectBids, getProjectBidSetup, generateBids, approveBid, downloadBidPdf,
-  getCostCodesWithVendors,
+  getCostCodesWithVendors, getProjectNotesStatus, uploadProjectNotes,
 } from '@/lib/vendy/bids-api'
-import type { Bid, BidSetup, BidSetupCostCode, BidSetupVendor } from '@/lib/vendy/bids-api'
+import type { Bid, BidSetup, BidSetupCostCode, BidSetupVendor, ProjectNotesStatus } from '@/lib/vendy/bids-api'
 
 interface Props { projectId: string }
 
@@ -155,6 +155,8 @@ function VendorSetup({
   const [showModal, setShowModal] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [allCostCodeVendors, setAllCostCodeVendors] = useState<Map<string, BidSetupVendor[]>>(new Map())
+  const [notesStatus, setNotesStatus] = useState<ProjectNotesStatus | null>(null)
+  const [notesGcsPath, setNotesGcsPath] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -175,6 +177,15 @@ function VendorSetup({
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    getProjectNotesStatus(projectId)
+      .then(status => {
+        setNotesStatus(status)
+        if (status.found && status.gcs_path) setNotesGcsPath(status.gcs_path)
+      })
+      .catch(() => {})
+  }, [projectId])
 
   function toggleVendor(costCode: string, vendorId: string) {
     setSelection(prev => {
@@ -203,7 +214,7 @@ function VendorSetup({
       for (const [code, set] of Object.entries(selection)) {
         if (set.size > 0) sel[code] = Array.from(set)
       }
-      await generateBids(projectId, sel)
+      await generateBids(projectId, sel, notesGcsPath)
       setShowModal(false)
       onGenerated()
     } catch (e) {
@@ -232,7 +243,7 @@ function VendorSetup({
   return (
     <>
       {/* Intro banner */}
-      <div className="flex items-center gap-4 px-5 py-4 bg-primary-light border border-primary/15 rounded-[14px] mb-6">
+      <div className="flex items-center gap-4 px-5 py-4 bg-primary-light border border-primary/15 rounded-[14px] mb-4">
         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
           <Sparkles size={14} className="text-primary" />
         </div>
@@ -251,7 +262,14 @@ function VendorSetup({
         </button>
       </div>
 
-      <div className="space-y-3">
+      <NotesPanel
+        projectId={projectId}
+        status={notesStatus}
+        onUploaded={(path) => { setNotesGcsPath(path); setNotesStatus({ found: true, gcs_path: path, filename: path.split('/').pop() ?? null }) }}
+        onError={onError}
+      />
+
+      <div className="space-y-3 mt-4">
         {setup.cost_codes.map(cc => {
           const allVendors = allCostCodeVendors.get(cc.cost_code) ?? []
           const setupIds = new Set(cc.vendors.map(v => v.vendor_id))
@@ -296,6 +314,82 @@ function VendorSetup({
         />
       )}
     </>
+  )
+}
+
+function NotesPanel({
+  projectId, status, onUploaded, onError,
+}: {
+  projectId: string
+  status: ProjectNotesStatus | null
+  onUploaded: (gcsPath: string) => void
+  onError: (msg: string) => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const result = await uploadProjectNotes(projectId, file)
+      onUploaded(result.gcs_path)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // Loading skeleton
+  if (status === null) {
+    return <div className="h-12 bg-surface-raised rounded-[14px] animate-pulse mb-1" />
+  }
+
+  if (status.found) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-success/8 border border-success/20 rounded-[14px]">
+        <div className="w-7 h-7 rounded-lg bg-success/15 flex items-center justify-center shrink-0">
+          <BookOpen size={13} className="text-success" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-medium text-success">Project notes loaded</p>
+          <p className="text-[11px] text-success/70 truncate mt-0.5">{status.filename}</p>
+        </div>
+        <CheckCircle size={14} className="text-success shrink-0" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 bg-warning/8 border border-warning/20 rounded-[14px]">
+      <div className="w-7 h-7 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
+        <BookOpen size={13} className="text-warning" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-medium text-text-primary">No project notes found</p>
+        <p className="text-[11px] text-text-secondary mt-0.5">
+          Upload a notes PDF to improve bid accuracy — or skip to generate with takeoff data only.
+        </p>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="inline-flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium border border-warning/40 text-warning rounded-lg hover:bg-warning/10 transition-colors disabled:opacity-50 shrink-0"
+      >
+        {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+        {uploading ? 'Uploading…' : 'Upload PDF'}
+      </button>
+    </div>
   )
 }
 

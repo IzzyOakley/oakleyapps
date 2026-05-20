@@ -20,7 +20,8 @@ def _load_system_prompt() -> str:
 
 
 async def generate_bid(
-    takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id
+    takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id,
+    notes_context: dict | None = None,
 ) -> dict:
     import asyncio
 
@@ -43,9 +44,15 @@ async def generate_bid(
             }
         )
 
+    notes_block = ""
+    if notes_context:
+        notes_block = (
+            f"PROJECT NOTES CONTEXT:\n{json.dumps(notes_context, indent=2)}\n\n"
+        )
+
     user_message = f"""Cost Code: {cost_code} — {cost_code_name}
 
-TAKEOFF ITEMS:
+{notes_block}TAKEOFF ITEMS:
 {json.dumps(takeoff_items, indent=2)}
 
 VENDOR HISTORICAL PRICING (for cost code {cost_code}):

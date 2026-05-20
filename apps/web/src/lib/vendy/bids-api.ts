@@ -54,6 +54,13 @@ export interface GenerateBidsResult {
   bids_created: number
   cost_codes_covered: string[]
   vendors_invited: string[]
+  notes_analyzed: boolean
+}
+
+export interface ProjectNotesStatus {
+  found: boolean
+  gcs_path: string | null
+  filename: string | null
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -85,17 +92,43 @@ export async function getProjectBidSetup(projectId: string): Promise<BidSetup> {
 /**
  * Trigger bid generation.
  * `selection` is a per-cost-code vendor override: { "3100": ["vendor_id_1", ...] }
- * Omit to use all vendors from each cost code.
+ * `notesGcsPath` is the GCS path to a project notes PDF — when provided the notes
+ * are analyzed by Claude and factored into every vendor bid.
  */
 export async function generateBids(
   projectId: string,
   selection?: Record<string, string[]>,
+  notesGcsPath?: string | null,
 ): Promise<GenerateBidsResult> {
   return fetchBids(`bids/project/${projectId}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selection: selection ?? null }),
+    body: JSON.stringify({
+      selection: selection ?? null,
+      notes_gcs_path: notesGcsPath ?? null,
+    }),
   })
+}
+
+export async function getProjectNotesStatus(projectId: string): Promise<ProjectNotesStatus> {
+  return fetchBids(`bids/project/${projectId}/notes-status`)
+}
+
+export async function uploadProjectNotes(
+  projectId: string,
+  file: File,
+): Promise<{ gcs_path: string; filename: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`/api/vendy/bids/bids/project/${projectId}/notes`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error((err as { detail?: string }).detail ?? 'Upload failed')
+  }
+  return res.json()
 }
 
 export async function getBid(bidId: string): Promise<Bid> {
