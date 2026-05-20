@@ -67,3 +67,62 @@ export interface BlueprintPage {
   width: number
   height: number
 }
+
+// ── Bid types ──────────────────────────────────────────────────────────────────
+
+export type BidStatus =
+  | 'generating'
+  | 'needs_review'
+  | 'approved'
+  | 'sent'
+  | 'confirmed'
+  | 'revised'
+  | 'awarded'
+  | 'not_awarded'
+  | 'failed'
+
+export type BidLineItemSource = 'history' | 'generated' | 'estimated' | 'legacy'
+
+export interface BidLineItem {
+  description: string
+  quantity: number | null
+  unit: string
+  unit_price: number | null
+  total: number | null
+  source: BidLineItemSource
+  takeoff_ref: string
+  notes: string | null
+}
+
+export interface BidDocument {
+  bid_id: string
+  project_id: string
+  project_name: string
+  vendor_id: string
+  vendor_name: string
+  cost_code: string
+  cost_code_name: string
+  status: BidStatus
+  line_items: BidLineItem[]
+  subtotal: number | null
+  generated_at: string | null
+  approved_at: string | null
+  approved_by: string | null
+  pdf_gcs_path: string | null
+  generation_notes: string | null
+  version: number | null
+}
+
+export interface BidSummary {
+  bid_id: string
+  project_id: string
+  project_name: string
+  vendor_id: string
+  vendor_name: string
+  cost_code: string
+  cost_code_name: string
+  status: BidStatus
+  subtotal: number | null
+  generated_at: string | null
+  line_item_count: number
+}

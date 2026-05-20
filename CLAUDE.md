@@ -23,8 +23,7 @@ Work entirely within the existing monorepo.
 | 0 | Foundation | ✅ Complete |
 | 1 | Takeoff Feature | ✅ Complete — live in production |
 | 2 | Cloud Run Deployment | ✅ Complete |
-| 3A | Bid Generator — Backend | ✅ Complete |
-| 3B | Bid Generator — Frontend | ⬜ Not started |
+| 3 | Bid Generator | ✅ Complete |
 | 4 | Vendor Intelligence | ⬜ Not started |
 | 5 | Bid Lifecycle | ⬜ Not started |
 | 6 | Analytics & Reporting | ⬜ Not started |
@@ -51,19 +50,30 @@ oakleyapps/
 ├── apps/web/src/
 │   ├── app/(authenticated)/vendy/
 │   │   ├── page.tsx                         # Vendy landing — 3 feature tiles
-│   │   └── takeoffs/                        # ⚠ EXISTING — do not break
+│   │   ├── takeoffs/                        # ⚠ EXISTING — do not break
+│   │   │   ├── page.tsx
+│   │   │   ├── TakeoffHubClient.tsx
+│   │   │   └── [project_id]/
+│   │   │       ├── page.tsx
+│   │   │       ├── ProjectDetailClient.tsx
+│   │   │       └── review/[job_id]/
+│   │   │           ├── page.tsx
+│   │   │           └── ReviewClient.tsx
+│   │   └── bids/                            # Bid generator UI
 │   │       ├── page.tsx
-│   │       ├── TakeoffHubClient.tsx
+│   │       ├── BidsHubClient.tsx            # Hub: Needs Review / In Progress / Completed
 │   │       └── [project_id]/
 │   │           ├── page.tsx
-│   │           ├── ProjectDetailClient.tsx
-│   │           └── review/[job_id]/
+│   │           ├── ProjectBidsClient.tsx    # Vendor selection + bid generation
+│   │           └── [bid_id]/
 │   │               ├── page.tsx
-│   │               └── ReviewClient.tsx
+│   │               └── BidReviewClient.tsx  # Line item review, edit, approve
 │   ├── app/api/vendy/[...path]/route.ts     # ⚠ EXISTING proxy — extend, don't replace
+│   ├── app/api/vendy/bids/[...path]/route.ts  # Proxy to bid-generator Cloud Run
 │   └── lib/vendy/
 │       ├── api.ts                           # ⚠ EXISTING — add functions, don't remove
-│       └── types.ts                         # ⚠ EXISTING — add types, don't remove
+│       ├── types.ts                         # ⚠ EXISTING — add types, don't remove
+│       └── bids-api.ts                      # Bid-specific fetch helpers (downloadBidPdf etc.)
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here
@@ -152,7 +162,7 @@ Everything lives under the `apps` top-level collection:
 ```
 apps/vendy/vendors/{vendor_slug}       vendor profiles + pricing intelligence
   └── bid_ledger/{bid_id}              one doc per processed bid outcome (NEW)
-apps/vendy/bids/{bid_id}               AI-generated bid drafts  ← written by bid-generator service
+apps/vendy/bids/{bid_id}               AI-generated bid drafts (written by bid-generator service)
 apps/vendy/jobs/{job_id}               takeoff extraction jobs
 apps/vendy/runs/{run_id}               AI agent audit log
 apps/shared/projects/{project_id}      construction projects
@@ -445,6 +455,38 @@ pnpm dev   # from monorepo root
 curl http://localhost:8001/health
 # → {"status":"ok","version":"0.1.0"}
 ```
+
+---
+
+## API Endpoints
+
+### takeoff-agent (proxied via `/api/vendy/[...path]`)
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/projects` | any | List all projects |
+| POST | `/projects` | pm | Create project |
+| GET | `/projects/{id}` | any | Project detail |
+| GET | `/projects/{id}/blueprint-pages` | any | Blueprint page URLs |
+| POST | `/projects/{id}/takeoff` | pm | Start takeoff extraction |
+| GET | `/jobs/{job_id}` | any | Takeoff job status + data |
+| PATCH | `/jobs/{job_id}/items/{item_id}` | pm | Override takeoff item |
+| POST | `/jobs/{job_id}/approve` | pm | Approve takeoff → writes to `apps/shared/takeoffs` |
+
+### bid-generator (proxied via `/api/vendy/bids/[...path]`)
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/bids` | any | List all bids |
+| GET | `/bids/project/{id}` | any | Bids for a project |
+| GET | `/bids/project/{id}/setup` | any | Vendor selection setup |
+| POST | `/bids/project/{id}/generate` | pm | Generate bids (with vendor selection) |
+| GET | `/bids/{bid_id}` | any | Full bid with line items |
+| PATCH | `/bids/{bid_id}/line-items/{idx}` | pm | Override line item qty/price |
+| POST | `/bids/{bid_id}/approve` | pm | Approve bid (status → `approved`) |
+| GET | `/bids/{bid_id}/pdf` | any | Download bid PDF |
+| GET | `/cost-codes` | any | Biddable cost codes with vendors |
+| POST | `/process/{project_id}` | pm | Manual bid generation trigger |
 
 ---
 
