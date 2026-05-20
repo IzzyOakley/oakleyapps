@@ -14,7 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 import firestore_client as fs
 import gcs_client as gcs
 import pubsub_client as ps
-from schemas import CreateProjectRequest, UpdateItemRequest
+from schemas import (
+    CreateProjectRequest,
+    UpdateItemRequest,
+    CreateVendorRequest,
+    UpdateVendorRequest,
+    CreateCostCodeRequest,
+)
 
 # ── Internal service secret ──────────────────────────────────────────────────
 # All requests originate from the Next.js proxy which has already verified the
@@ -63,6 +69,21 @@ async def require_pm(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(
             status_code=403, detail="Forbidden — PM or admin role required"
         )
+    return user
+
+
+async def require_management(user: dict = Depends(get_current_user)) -> dict:
+    role = user.get("role", "staff")
+    if role not in {"admin", "management"}:
+        raise HTTPException(
+            status_code=403, detail="Forbidden — management or admin role required"
+        )
+    return user
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden — admin role required")
     return user
 
 
@@ -402,6 +423,99 @@ async def approve_job(job_id: str, user: dict = Depends(require_pm)) -> dict:
         pass  # Don't fail approval if Pub/Sub publish fails
 
     return {"status": "approved", "project_id": project_id, "job_id": job_id}
+
+
+# ── Vendors ──────────────────────────────────────────────────────────────────
+
+
+@app.get("/vendors")
+async def list_vendors(
+    active: bool | None = None,
+    user: dict = Depends(get_current_user),
+) -> list[dict]:
+    vendors = fs.list_vendors(active_only=active is True)
+    result = []
+    for v in vendors:
+        result.append(
+            {
+                "vendor_id": v["vendor_id"],
+                "name": v.get("name", ""),
+                "trade": v.get("trade", ""),
+                "contact_email": v.get("contact_email", ""),
+                "bid_format": v.get("bid_format", "itemized"),
+                "active": v.get("active", True),
+                "bids_processed": (v.get("price_book") or {}).get("bids_processed", 0),
+                "price_book_last_updated": (v.get("price_book") or {}).get("last_updated"),
+            }
+        )
+    result.sort(key=lambda v: v["name"].lower())
+    return result
+
+
+@app.get("/vendors/{slug}")
+async def get_vendor(slug: str, user: dict = Depends(get_current_user)) -> dict:
+    vendor = fs.get_vendor_full(slug)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return vendor
+
+
+@app.post("/vendors", status_code=201)
+async def create_vendor(
+    body: CreateVendorRequest,
+    user: dict = Depends(require_management),
+) -> dict:
+    try:
+        slug = fs.create_vendor(
+            body.name, body.trade, body.contact_email, body.bid_format
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"vendor_id": slug}
+
+
+@app.patch("/vendors/{slug}")
+async def update_vendor(
+    slug: str,
+    body: UpdateVendorRequest,
+    user: dict = Depends(require_management),
+) -> dict:
+    updated = fs.update_vendor_active(slug, body.active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"vendor_id": slug, "active": body.active}
+
+
+@app.get("/vendors/{slug}/bid-ledger")
+async def get_vendor_bid_ledger(
+    slug: str,
+    page: int = 1,
+    outcome: str | None = None,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    vendor = fs.get_vendor_full(slug)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    if outcome and outcome not in ("awarded", "not_awarded"):
+        raise HTTPException(
+            status_code=400, detail="outcome must be 'awarded' or 'not_awarded'"
+        )
+    return fs.list_vendor_bid_ledger(slug, page=page, outcome=outcome)
+
+
+# ── Cost Codes ────────────────────────────────────────────────────────────────
+
+
+@app.post("/cost-codes", status_code=201)
+async def create_cost_code(
+    body: CreateCostCodeRequest,
+    user: dict = Depends(require_admin),
+) -> dict:
+    try:
+        code = fs.create_cost_code(body.full_code, body.name, body.category)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"full_code": code}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

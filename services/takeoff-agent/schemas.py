@@ -57,3 +57,20 @@ class ProjectResponse(BaseModel):
     takeoff_status: str  # "none" | "processing" | "needs_approval" | "approved"
     takeoff_job_id: Optional[str] = None
     flags: dict = {}
+
+
+class CreateVendorRequest(BaseModel):
+    name: str
+    trade: str
+    contact_email: str
+    bid_format: str = "itemized"  # "itemized" | "lump_sum"
+
+
+class UpdateVendorRequest(BaseModel):
+    active: bool
+
+
+class CreateCostCodeRequest(BaseModel):
+    full_code: str
+    name: str
+    category: str

@@ -1,0 +1,100 @@
+name: Cloud Function — on_bid_outcome
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/cloud-functions/on_bid_outcome/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FUNCTION_NAME: on_bid_outcome
+  REGION: us-central1
+  # Cloud Function lives in buildertrend-pipeline — where Firestore and GCS live
+  PROJECT: buildertrend-pipeline
+  # Firestore multi-region location for the default database
+  FIRESTORE_LOCATION: nam5
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # CI — run unit tests
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest
+          # Install only the packages that don't require GCP credentials for import
+          pip install google-cloud-firestore google-events
+
+      - name: Run unit tests
+        run: pytest services/cloud-functions/on_bid_outcome/tests/ -v
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # CD — deploy to Cloud Functions (main branch only)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy Cloud Function
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Cloud Function (gen2)
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --runtime=python311 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --source=services/cloud-functions/on_bid_outcome \
+            --entry-point=on_bid_outcome \
+            --trigger-event-filters="type=google.cloud.firestore.document.v1.updated" \
+            --trigger-event-filters="database=(default)" \
+            --trigger-event-filters-path-pattern="document=apps/vendy/bids/{bid_id}" \
+            --trigger-location=${{ env.FIRESTORE_LOCATION }} \
+            --set-env-vars="FIREBASE_PROJECT_ID=${{ env.PROJECT }}" \
+            --memory=256Mi \
+            --timeout=60s \
+            --min-instances=0 \
+            --max-instances=10 \
+            --quiet
+
+      - name: Verify deployment
+        run: |
+          gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --format="value(state)"

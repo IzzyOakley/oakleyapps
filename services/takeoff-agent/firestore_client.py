@@ -250,6 +250,144 @@ def update_item_in_job(
 # ── Approved Takeoffs ───────────────────────────────────────────────────────
 
 
+# ── Vendors ─────────────────────────────────────────────────────────────────
+
+
+def list_vendors(active_only: bool = False) -> list[dict]:
+    db = get_db()
+    col = db.collection("apps").document("vendy").collection("vendors")
+    if active_only:
+        docs = col.where(filter=firestore.FieldFilter("active", "==", True)).stream()
+    else:
+        docs = col.stream()
+    return [{"vendor_id": d.id, **d.to_dict()} for d in docs]
+
+
+def get_vendor_full(slug: str) -> dict | None:
+    db = get_db()
+    doc = (
+        db.collection("apps").document("vendy").collection("vendors").document(slug).get()
+    )
+    if not doc.exists:
+        return None
+    return {"vendor_id": doc.id, **doc.to_dict()}
+
+
+def create_vendor(
+    name: str, trade: str, contact_email: str, bid_format: str
+) -> str:
+    import re
+
+    db = get_db()
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    ref = db.collection("apps").document("vendy").collection("vendors").document(slug)
+    if ref.get().exists:
+        raise ValueError(f"Vendor with slug '{slug}' already exists")
+    ref.set(
+        {
+            "name": name,
+            "trade": trade,
+            "contact_email": contact_email,
+            "bid_format": bid_format,
+            "active": True,
+            "created_at": datetime.now(timezone.utc),
+            "price_book": {
+                "last_updated": None,
+                "bids_processed": 0,
+                "categories": {},
+            },
+        }
+    )
+    return slug
+
+
+def update_vendor_active(slug: str, active: bool) -> bool:
+    db = get_db()
+    ref = db.collection("apps").document("vendy").collection("vendors").document(slug)
+    if not ref.get().exists:
+        return False
+    ref.update({"active": active})
+    return True
+
+
+def list_vendor_bid_ledger(
+    slug: str, page: int = 1, outcome: str | None = None
+) -> dict:
+    db = get_db()
+    PAGE_SIZE = 20
+    col = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("vendors")
+        .document(slug)
+        .collection("bid_ledger")
+    )
+    query = col.order_by("bid_date", direction=firestore.Query.DESCENDING)
+    if outcome:
+        query = col.where(
+            filter=firestore.FieldFilter("outcome", "==", outcome)
+        ).order_by("bid_date", direction=firestore.Query.DESCENDING)
+
+    # Fetch one extra to detect if there's a next page
+    docs = list(query.limit(PAGE_SIZE * page + 1).stream())
+    total_fetched = len(docs)
+    page_docs = docs[(page - 1) * PAGE_SIZE : page * PAGE_SIZE]
+
+    entries = [{"bid_id": d.id, **d.to_dict()} for d in page_docs]
+    return {
+        "entries": entries,
+        "page": page,
+        "has_more": total_fetched > page * PAGE_SIZE,
+    }
+
+
+# ── Cost Codes ──────────────────────────────────────────────────────────────
+
+
+def create_cost_code(full_code: str, name: str, category: str) -> str:
+    db = get_db()
+    ref = (
+        db.collection("apps")
+        .document("shared")
+        .collection("cost_codes")
+        .document(full_code)
+    )
+    if ref.get().exists:
+        raise ValueError(f"Cost code '{full_code}' already exists")
+    ref.set(
+        {
+            "full_code": full_code,
+            "name": name,
+            "category": category,
+            "vendors": [],
+            "flags": {
+                "include_in_estimation": True,
+                "biddable": True,
+                "include_in_vendor_extraction": True,
+            },
+            "is_profit_item": False,
+            "app_settings": {},
+        }
+    )
+    return full_code
+
+
+def list_categories() -> list[str]:
+    db = get_db()
+    docs = (
+        db.collection("apps").document("shared").collection("cost_codes").stream()
+    )
+    categories: set[str] = set()
+    for d in docs:
+        cat = (d.to_dict() or {}).get("category")
+        if cat:
+            categories.add(cat)
+    return sorted(categories)
+
+
+# ── Approved Takeoffs ───────────────────────────────────────────────────────
+
+
 def write_approved_takeoff(
     project_id: str, job_id: str, project: dict, takeoff_data: dict, approved_by: str
 ) -> None:

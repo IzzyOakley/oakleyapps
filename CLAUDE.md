@@ -24,7 +24,7 @@ Work entirely within the existing monorepo.
 | 1 | Takeoff Feature | ✅ Complete — live in production |
 | 2 | Cloud Run Deployment | ✅ Complete |
 | 3 | Bid Generator | ✅ Complete |
-| 4 | Vendor Intelligence | ⬜ Not started |
+| 4 | Vendor Intelligence | ✅ Complete |
 | 5 | Bid Lifecycle | ⬜ Not started |
 | 6 | Analytics & Reporting | ⬜ Not started |
 
@@ -100,9 +100,15 @@ oakleyapps/
 │   ├── Dockerfile
 │   └── tests/test_bid_builder.py            # Unit tests — 4 pricing tiers
 │
+├── services/cloud-functions/
+│   └── on_bid_outcome/                      # GCP Cloud Function (gen2) — buildertrend-pipeline
+│       ├── main.py                          # Entry: on_bid_outcome — writes bid_ledger + updates price_book
+│       ├── requirements.txt
+│       └── tests/test_price_book.py
 └── .github/workflows/
     ├── takeoff-agent.yml                    # CI/CD for takeoff-agent Cloud Run service
-    └── bid-generator.yml                    # CI/CD for bid-generator Cloud Run service
+    ├── bid-generator.yml                    # CI/CD for bid-generator Cloud Run service
+    └── on-bid-outcome.yml                   # CI/CD for on_bid_outcome Cloud Function (gen2)
 ```
 
 ---
@@ -381,7 +387,7 @@ Folder names under `projects/` must exactly match `job_name` in Firestore.
 1. **Never scaffold a new project.** Existing production app — work within the monorepo.
 2. **Never break the takeoff feature.** It is live. Test the full flow after every change to shared modules.
 3. **Never write to `pricing_profile`.** It is frozen legacy data. Read-only fallback only.
-4. **`price_book` is written by Cloud Functions only.** Never write it from FastAPI or the browser.
+4. **`price_book` is written by `on_bid_outcome` Cloud Function only.** Never write it from FastAPI or the browser.
 5. **`bid_ledger` is append-only.** Never edit or delete bid_ledger documents.
 6. **Multi-document updates use batched writes.** Award flow, status cascades — always batch.
 7. **Never expose the Cloud Run URL to the browser.** All requests go through the Next.js proxy.
@@ -472,6 +478,12 @@ curl http://localhost:8001/health
 | GET | `/jobs/{job_id}` | any | Takeoff job status + data |
 | PATCH | `/jobs/{job_id}/items/{item_id}` | pm | Override takeoff item |
 | POST | `/jobs/{job_id}/approve` | pm | Approve takeoff → writes to `apps/shared/takeoffs` |
+| GET | `/vendors` | any | List vendors (optional `?active=true`) |
+| GET | `/vendors/{slug}` | any | Full vendor profile with price_book |
+| POST | `/vendors` | management | Create vendor |
+| PATCH | `/vendors/{slug}` | management | Toggle `active` flag |
+| GET | `/vendors/{slug}/bid-ledger` | any | Paginated bid history (`?page=1&outcome=awarded`) |
+| POST | `/cost-codes` | admin | Create cost code |
 
 ### bid-generator (proxied via `/api/vendy/bids/[...path]`)
 
@@ -480,6 +492,8 @@ curl http://localhost:8001/health
 | GET | `/bids` | any | List all bids |
 | GET | `/bids/project/{id}` | any | Bids for a project |
 | GET | `/bids/project/{id}/setup` | any | Vendor selection setup |
+| GET | `/bids/project/{id}/notes-status` | any | Check if project notes PDF exists in GCS |
+| POST | `/bids/project/{id}/notes` | pm | Upload project notes PDF to GCS |
 | POST | `/bids/project/{id}/generate` | pm | Generate bids (with vendor selection) |
 | GET | `/bids/{bid_id}` | any | Full bid with line items |
 | PATCH | `/bids/{bid_id}/line-items/{idx}` | pm | Override line item qty/price |
@@ -487,6 +501,12 @@ curl http://localhost:8001/health
 | GET | `/bids/{bid_id}/pdf` | any | Download bid PDF |
 | GET | `/cost-codes` | any | Biddable cost codes with vendors |
 | POST | `/process/{project_id}` | pm | Manual bid generation trigger |
+
+### Cloud Functions (GCP — not proxied)
+
+| Function | Trigger | Project | Description |
+|----------|---------|---------|-------------|
+| `on_bid_outcome` | Firestore onUpdate `apps/vendy/bids/{bid_id}` | buildertrend-pipeline | Writes `bid_ledger` entry + updates `price_book` rolling stats when status → `awarded` or `not_awarded` |
 
 ---
 
