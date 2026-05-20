@@ -235,7 +235,7 @@ function BlueprintViewer({ pages, currentPage, onPageChange }: {
   const [imgLoading, setImgLoading] = useState(true)
 
   return (
-    <div className="flex flex-col" style={{ background: '#050508', minHeight: '520px' }}>
+    <div className="flex flex-col bg-[#1a1a2e]" style={{ minHeight: '520px' }}>
       <div className="flex-1 flex items-center justify-center p-4 relative">
         {imgLoading && (
           <div className="absolute inset-0 flex items-center justify-center">

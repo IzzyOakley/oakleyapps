@@ -33,7 +33,7 @@ export default async function AuthenticatedLayout({
   return (
     <div className="flex min-h-screen bg-background">
       <SideNavServer user={user} />
-      <main className="flex-1 ml-60 px-8 py-7 max-w-[1280px] animate-in fade-in">
+      <main className="flex-1 px-8 py-7 max-w-[1280px] animate-in fade-in" style={{ marginLeft: 172 }}>
         {children}
       </main>
     </div>

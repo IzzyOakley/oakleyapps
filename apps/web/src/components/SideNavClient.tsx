@@ -12,16 +12,22 @@ interface NavItem {
   icon: JSX.Element
   roles: UserRole[]
   indent?: boolean
+  group?: string
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: ['admin', 'management', 'pm', 'staff', 'vendor'] },
-  { href: '/vendy', label: 'Vendy', icon: <FileText size={20} />, roles: ['admin', 'management', 'pm'] },
-  { href: '/vendy/takeoffs', label: 'Takeoffs', icon: <Ruler size={16} />, roles: ['admin', 'management', 'pm'], indent: true },
-  { href: '/vendy/bids', label: 'Bids', icon: <FileOutput size={16} />, roles: ['admin', 'management', 'pm'], indent: true },
-  { href: '/margo', label: 'MargO', icon: <RefreshCw size={20} />, roles: ['admin', 'management', 'pm'] },
-  { href: '/admin', label: 'Admin', icon: <Shield size={20} />, roles: ['admin'] },
+  { href: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, roles: ['admin', 'management', 'pm', 'staff', 'vendor'], group: 'main' },
+  { href: '/vendy/takeoffs', label: 'Takeoffs', icon: <Ruler size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
+  { href: '/vendy/bids', label: 'Bids', icon: <FileOutput size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
+  { href: '/margo', label: 'MargO', icon: <RefreshCw size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
+  { href: '/admin', label: 'Admin', icon: <Shield size={16} />, roles: ['admin'], group: 'management' },
 ]
+
+const GROUP_LABELS: Record<string, string> = {
+  main: '',
+  projects: 'Projects',
+  management: 'Management',
+}
 
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Administrator',
@@ -41,6 +47,15 @@ export default function SideNavClient({ user }: Props) {
 
   const visibleItems = NAV_ITEMS.filter(item => item.roles.includes(user.role))
 
+  // Group items preserving order, showing a label only at the first item of each group
+  const groups = visibleItems.reduce<{ group: string; items: NavItem[] }[]>((acc, item) => {
+    const g = item.group ?? 'main'
+    const last = acc[acc.length - 1]
+    if (last && last.group === g) { last.items.push(item) }
+    else { acc.push({ group: g, items: [item] }) }
+    return acc
+  }, [])
+
   async function handleSignOut() {
     await fetch('/api/auth/session', { method: 'DELETE' })
     router.push('/login')
@@ -48,46 +63,52 @@ export default function SideNavClient({ user }: Props) {
   }
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 flex flex-col z-30 bg-sidebar border-r border-white/5">
+    <aside className="fixed left-0 top-0 h-screen flex flex-col z-30 bg-sidebar border-r border-white/5" style={{ width: 172 }}>
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-white/5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-bold">V</span>
+      <div className="px-4 py-5 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shrink-0">
+            <span className="text-white text-[10px] font-bold">O</span>
           </div>
           <div>
-            <span className="text-sm font-semibold text-white">Oakley</span>
-            <span className="text-sm font-semibold text-primary-mid"> Apps</span>
+            <span className="text-[13px] font-semibold text-white">Oakley</span>
+            <span className="text-[13px] font-semibold text-primary-mid"> Apps</span>
           </div>
         </div>
       </div>
 
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-white/20 mt-2 mb-2 px-2">Apps</p>
-        <ul className="space-y-0.5">
-          {visibleItems.map(item => {
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`flex items-center gap-2.5 px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 ${
-                    item.indent ? 'ml-5' : ''
-                  } ${
-                    isActive
-                      ? 'text-nav-active bg-sidebar-active rounded-r-md border-l-2 border-primary pl-[9px]'
-                      : 'text-nav-inactive rounded-md hover:text-white/70 hover:bg-white/5'
-                  }`}
-                >
-                  <span className={isActive ? 'text-nav-active' : 'text-nav-inactive'}>
-                    {item.icon}
-                  </span>
-                  {item.label}
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
+        {groups.map(({ group, items }) => (
+          <div key={group} className="mb-4">
+            {GROUP_LABELS[group] && (
+              <p className="text-[9px] font-semibold uppercase tracking-widest text-white/20 mb-1.5 px-2">
+                {GROUP_LABELS[group]}
+              </p>
+            )}
+            <ul className="space-y-0.5">
+              {items.map(item => {
+                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 ${
+                        isActive
+                          ? 'text-nav-active bg-sidebar-active rounded-r-md border-l-2 border-primary pl-[9px]'
+                          : 'text-nav-inactive rounded-md hover:text-white/70 hover:bg-white/5'
+                      }`}
+                    >
+                      <span className={isActive ? 'text-nav-active' : 'text-nav-inactive'}>
+                        {item.icon}
+                      </span>
+                      {item.label}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
       <div className="px-3 py-4 border-t border-white/5">
