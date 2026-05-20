@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronRight, Loader2, CheckCircle, Download,
+  ChevronRight, Loader2, Download,
   Edit2, AlertTriangle, X, Check, Sparkles,
   Send, Trophy, ThumbsDown, RotateCcw, MessageSquare,
   Clock, Ban,
