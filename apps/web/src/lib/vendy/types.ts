@@ -73,13 +73,20 @@ export interface BlueprintPage {
 export type BidStatus =
   | 'generating'
   | 'needs_review'
-  | 'approved'
+  | 'approved'     // legacy — treated as 'sent'
   | 'sent'
   | 'confirmed'
   | 'revised'
   | 'awarded'
   | 'not_awarded'
+  | 'rejected'
   | 'failed'
+
+export interface BidCommsNote {
+  author: string
+  timestamp: string
+  body: string
+}
 
 export type BidLineItemSource = 'history' | 'generated' | 'estimated' | 'legacy'
 
@@ -111,6 +118,8 @@ export interface BidDocument {
   pdf_gcs_path: string | null
   generation_notes: string | null
   version: number | null
+  comms_log?: BidCommsNote[]
+  updated_at?: string | null
 }
 
 export interface BidSummary {

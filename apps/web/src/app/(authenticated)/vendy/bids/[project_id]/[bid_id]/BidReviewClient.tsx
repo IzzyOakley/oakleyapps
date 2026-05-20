@@ -5,12 +5,20 @@ import { useRouter } from 'next/navigation'
 import {
   ChevronRight, Loader2, CheckCircle, Download,
   Edit2, AlertTriangle, X, Check, Sparkles,
+  Send, Trophy, ThumbsDown, RotateCcw, MessageSquare,
+  Clock, Ban,
 } from 'lucide-react'
-import { getBidDetail, updateBidLineItem, approveBidDocument } from '@/lib/vendy/api'
-import { downloadBidPdf } from '@/lib/vendy/bids-api'
-import type { BidDocument, BidLineItem, BidLineItemSource } from '@/lib/vendy/types'
+import { getBidDetail, updateBidLineItem } from '@/lib/vendy/api'
+import {
+  downloadBidPdf, sendBid, confirmBid, reviseBid,
+  awardBid, declineBid, addBidCommsNote, getProjectBids,
+} from '@/lib/vendy/bids-api'
+import type { BidDocument, BidLineItem, BidLineItemSource, BidCommsNote } from '@/lib/vendy/types'
 
 interface Props { projectId: string; bidId: string }
+
+const TERMINAL_STATUSES = new Set(['awarded', 'not_awarded', 'rejected'])
+const EDITABLE_STATUSES = new Set(['needs_review', 'approved', 'sent', 'confirmed', 'revised'])
 
 function initials(name: string) {
   return name.split(/[\s_]+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('')
@@ -21,8 +29,31 @@ function vendorLabel(name: string) {
 function fmt(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+function fmtTs(s: string) {
+  return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
 function isEstimated(s: BidLineItemSource) {
   return s === 'generated' || s === 'estimated'
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+const STATUS_META: Record<string, { label: string; cls: string }> = {
+  generating:   { label: 'Generating…',  cls: 'text-primary' },
+  needs_review: { label: 'In Review',    cls: 'text-warning' },
+  approved:     { label: 'Sent',         cls: 'text-info' },   // legacy
+  sent:         { label: 'Sent',         cls: 'text-info' },
+  confirmed:    { label: 'Confirmed',    cls: 'text-info' },
+  revised:      { label: 'Revised',      cls: 'text-warning' },
+  awarded:      { label: 'Awarded',      cls: 'text-success' },
+  not_awarded:  { label: 'Not Awarded',  cls: 'text-text-muted' },
+  rejected:     { label: 'Rejected',     cls: 'text-danger' },
+  failed:       { label: 'Failed',       cls: 'text-danger' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_META[status] ?? { label: status, cls: 'text-text-muted' }
+  return <span className={`text-[13px] font-semibold ${s.cls}`}>{s.label}</span>
 }
 
 // ── Source badge ──────────────────────────────────────────────────────────────
@@ -31,7 +62,7 @@ function SourceBadge({ source }: { source: BidLineItemSource }) {
   if (source === 'history') {
     return (
       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary-light text-primary">
-        Takeoff
+        History
       </span>
     )
   }
@@ -49,22 +80,315 @@ function SourceBadge({ source }: { source: BidLineItemSource }) {
   )
 }
 
-// ── Status inline text ────────────────────────────────────────────────────────
+// ── Award confirmation modal ──────────────────────────────────────────────────
 
-function StatusText({ status }: { status: BidDocument['status'] }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    generating:   { label: 'Generating…', cls: 'text-primary' },
-    needs_review: { label: 'In review',   cls: 'text-warning' },
-    approved:     { label: 'Approved',    cls: 'text-success' },
-    sent:         { label: 'Sent',        cls: 'text-info' },
-    confirmed:    { label: 'Confirmed',   cls: 'text-info' },
-    revised:      { label: 'Revised',     cls: 'text-info' },
-    awarded:      { label: 'Awarded',     cls: 'text-success' },
-    not_awarded:  { label: 'Not awarded', cls: 'text-text-muted' },
-    failed:       { label: 'Failed',      cls: 'text-danger' },
+function AwardModal({
+  bid,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  bid: BidDocument
+  onConfirm: () => void
+  onCancel: () => void
+  loading: boolean
+}) {
+  const [siblings, setSiblings] = useState<BidDocument[]>([])
+
+  useEffect(() => {
+    getProjectBids(bid.project_id)
+      .then(bids => setSiblings(
+        bids.filter(b =>
+          b.cost_code === bid.cost_code &&
+          b.bid_id !== bid.bid_id &&
+          !TERMINAL_STATUSES.has(b.status) &&
+          b.status !== 'generating' &&
+          b.status !== 'failed'
+        )
+      ))
+      .catch(() => {})
+  }, [bid.project_id, bid.cost_code, bid.bid_id])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+            <Trophy size={18} className="text-success" />
+          </div>
+          <div>
+            <h2 className="text-[15px] font-semibold text-text-primary">Award this bid?</h2>
+            <p className="text-[12px] text-text-muted">
+              {vendorLabel(bid.vendor_name)} · {bid.cost_code_name}
+            </p>
+          </div>
+        </div>
+
+        {siblings.length > 0 ? (
+          <div className="mb-5 p-3 bg-warning-bg border border-warning/20 rounded-xl">
+            <p className="text-[12px] font-medium text-text-primary mb-2">
+              The following {siblings.length} vendor{siblings.length !== 1 ? 's' : ''} will automatically be marked <span className="font-semibold">Not Awarded</span>:
+            </p>
+            <ul className="space-y-1">
+              {siblings.map(s => (
+                <li key={s.bid_id} className="flex items-center gap-2 text-[12px] text-text-secondary">
+                  <X size={10} className="text-warning shrink-0" />
+                  {vendorLabel(s.vendor_name)}
+                  {s.subtotal != null && <span className="text-text-muted ml-auto">${fmt(s.subtotal)}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-[12px] text-text-muted mb-5">
+            No other active bids exist for this cost code on this project.
+          </p>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-2 rounded-xl border border-border text-[13px] font-medium text-text-secondary hover:bg-surface-raised transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2 rounded-xl bg-success text-white text-[13px] font-medium hover:bg-success/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Trophy size={14} />}
+            Award Bid
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Action bar ────────────────────────────────────────────────────────────────
+
+interface ActionBarProps {
+  bid: BidDocument
+  canSend: boolean
+  unreviewedCount: number
+  onAction: (action: string) => void
+  busy: boolean
+  error: string | null
+}
+
+function ActionBar({ bid, canSend, unreviewedCount, onAction, busy, error }: ActionBarProps) {
+  const status = bid.status === 'approved' ? 'sent' : bid.status // treat legacy 'approved' as 'sent'
+
+  if (TERMINAL_STATUSES.has(status)) return null
+
+  return (
+    <div className="bg-surface border border-border rounded-[14px] px-5 py-4 mb-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-0.5">Next action</p>
+          {status === 'needs_review' && (
+            <p className="text-[12px] text-text-secondary">
+              Review all estimated line items, then send the bid to the vendor.
+            </p>
+          )}
+          {status === 'sent' && (
+            <p className="text-[12px] text-text-secondary">
+              Waiting for vendor acknowledgement. Mark when confirmed or take action.
+            </p>
+          )}
+          {(status === 'confirmed' || status === 'revised') && (
+            <p className="text-[12px] text-text-secondary">
+              Vendor has responded. Award, request revision, or decline.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {status === 'needs_review' && (
+            <button
+              onClick={() => onAction('send')}
+              disabled={!canSend || busy}
+              title={!canSend ? `Review ${unreviewedCount} estimated item${unreviewedCount !== 1 ? 's' : ''} first` : undefined}
+              className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+              Send to Vendor
+            </button>
+          )}
+
+          {status === 'sent' && (
+            <>
+              <button
+                onClick={() => onAction('confirm')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Mark Confirmed
+              </button>
+              <button
+                onClick={() => onAction('award')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-success border border-success/30 rounded-md hover:bg-success/10 transition-colors disabled:opacity-40"
+              >
+                <Trophy size={12} /> Award
+              </button>
+              <button
+                onClick={() => onAction('not_awarded')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-text-muted border border-border rounded-md hover:bg-surface-raised transition-colors disabled:opacity-40"
+              >
+                <ThumbsDown size={12} /> Not Awarded
+              </button>
+              <button
+                onClick={() => onAction('rejected')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-danger border border-danger/20 rounded-md hover:bg-danger-bg transition-colors disabled:opacity-40"
+              >
+                <Ban size={12} /> Reject
+              </button>
+            </>
+          )}
+
+          {(status === 'confirmed' || status === 'revised') && (
+            <>
+              <button
+                onClick={() => onAction('award')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-success text-white rounded-md hover:bg-success/90 transition-colors disabled:opacity-40"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Trophy size={12} />}
+                Award Bid
+              </button>
+              {status === 'confirmed' && (
+                <button
+                  onClick={() => onAction('revise')}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-warning border border-warning/30 rounded-md hover:bg-warning/10 transition-colors disabled:opacity-40"
+                >
+                  <RotateCcw size={12} /> Mark Revised
+                </button>
+              )}
+              {status === 'revised' && (
+                <button
+                  onClick={() => onAction('confirm')}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-primary border border-primary/30 rounded-md hover:bg-primary/10 transition-colors disabled:opacity-40"
+                >
+                  <Check size={12} /> Mark Confirmed
+                </button>
+              )}
+              <button
+                onClick={() => onAction('not_awarded')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-text-muted border border-border rounded-md hover:bg-surface-raised transition-colors disabled:opacity-40"
+              >
+                <ThumbsDown size={12} /> Not Awarded
+              </button>
+              <button
+                onClick={() => onAction('rejected')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold text-danger border border-danger/20 rounded-md hover:bg-danger-bg transition-colors disabled:opacity-40"
+              >
+                <Ban size={12} /> Reject
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 mt-3 px-3 py-2 bg-danger-bg border border-danger/20 rounded-lg text-xs text-danger">
+          <AlertTriangle size={11} /> {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Communications log ────────────────────────────────────────────────────────
+
+function CommsLogPanel({ bidId, notes }: { bidId: string; notes: BidCommsNote[] }) {
+  const [log, setLog] = useState<BidCommsNote[]>(notes)
+  const [body, setBody] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function handleAdd() {
+    if (!body.trim()) return
+    setSaving(true)
+    setErr(null)
+    try {
+      await addBidCommsNote(bidId, body.trim())
+      setLog(prev => [{
+        author: 'You',
+        timestamp: new Date().toISOString(),
+        body: body.trim(),
+      }, ...prev])
+      setBody('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save note')
+    } finally {
+      setSaving(false)
+    }
   }
-  const s = map[status] ?? { label: status, cls: 'text-text-muted' }
-  return <span className={`text-[13px] font-semibold ${s.cls}`}>{s.label}</span>
+
+  return (
+    <div className="bg-surface border border-border rounded-[14px] overflow-hidden mt-4">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-border-light">
+        <MessageSquare size={14} className="text-text-muted" />
+        <p className="text-[12px] font-semibold text-text-primary">
+          Communications Log
+          {log.length > 0 && <span className="text-text-muted font-normal ml-1">{log.length} {log.length === 1 ? 'note' : 'notes'}</span>}
+        </p>
+      </div>
+
+      {/* Add note */}
+      <div className="px-5 py-3 border-b border-border-light bg-surface-raised/40">
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          placeholder="Add a note — call summary, vendor feedback, direction given…"
+          rows={2}
+          className="w-full bg-surface border border-border text-text-primary text-[12px] rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-primary transition-colors placeholder:text-text-muted"
+        />
+        {err && <p className="text-[11px] text-danger mt-1">{err}</p>}
+        <div className="flex justify-end mt-2">
+          <button
+            onClick={handleAdd}
+            disabled={saving || !body.trim()}
+            className="inline-flex items-center gap-1.5 h-7 px-3 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40"
+          >
+            {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+            Add Note
+          </button>
+        </div>
+      </div>
+
+      {/* Log entries */}
+      {log.length === 0 ? (
+        <div className="px-5 py-6 text-center text-[12px] text-text-muted">
+          No notes yet. Log calls, emails, or decisions here.
+        </div>
+      ) : (
+        <div className="divide-y divide-border-light">
+          {log.map((note, i) => (
+            <div key={i} className="px-5 py-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-text-secondary">{note.author}</span>
+                <span className="text-[10px] text-text-muted flex items-center gap-1">
+                  <Clock size={9} /> {fmtTs(note.timestamp)}
+                </span>
+              </div>
+              <p className="text-[12px] text-text-primary leading-relaxed whitespace-pre-wrap">{note.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -73,19 +397,21 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
   const router = useRouter()
   const [bid, setBid] = useState<BidDocument | null>(null)
   const [loading, setLoading] = useState(true)
-  const [approving, setApproving] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [reviewedIdxs, setReviewedIdxs] = useState<Set<number>>(new Set())
   const [flagsDismissed, setFlagsDismissed] = useState(false)
+  const [showAwardModal, setShowAwardModal] = useState(false)
 
   const loadBid = useCallback(async () => {
     try {
       const data = await getBidDetail(bidId)
       setBid(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load bid')
+      setLoadError(e instanceof Error ? e.message : 'Failed to load bid')
     } finally {
       setLoading(false)
     }
@@ -101,7 +427,6 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
     : []
   const allReviewed = estimatedIdxs.every(i => reviewedIdxs.has(i))
   const unreviewedCount = estimatedIdxs.filter(i => !reviewedIdxs.has(i)).length
-
   const historyCount = bid ? bid.line_items.filter(i => i.source === 'history').length : 0
 
   function openEdit(idx: number) {
@@ -111,28 +436,60 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
     }
   }
 
-  async function handleApprove() {
-    setApproving(true)
-    setError(null)
+  async function handleAction(action: string) {
+    if (!bid) return
+    if (action === 'award') { setShowAwardModal(true); return }
+
+    setActionBusy(true)
+    setActionError(null)
     try {
-      await approveBidDocument(bidId)
-      router.push(`/vendy/bids/${projectId}`)
+      if (action === 'send') {
+        await sendBid(bidId)
+        setBid(prev => prev ? { ...prev, status: 'sent' } : prev)
+      } else if (action === 'confirm') {
+        await confirmBid(bidId)
+        setBid(prev => prev ? { ...prev, status: 'confirmed' } : prev)
+      } else if (action === 'revise') {
+        await reviseBid(bidId)
+        setBid(prev => prev ? { ...prev, status: 'revised' } : prev)
+      } else if (action === 'not_awarded') {
+        await declineBid(bidId, 'not_awarded')
+        setBid(prev => prev ? { ...prev, status: 'not_awarded' } : prev)
+      } else if (action === 'rejected') {
+        await declineBid(bidId, 'rejected')
+        setBid(prev => prev ? { ...prev, status: 'rejected' } : prev)
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Approval failed')
-      setApproving(false)
+      setActionError(e instanceof Error ? e.message : 'Action failed')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function handleAwardConfirm() {
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      await awardBid(bidId)
+      setBid(prev => prev ? { ...prev, status: 'awarded' } : prev)
+      setShowAwardModal(false)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Award failed')
+      setShowAwardModal(false)
+    } finally {
+      setActionBusy(false)
     }
   }
 
   async function handleDownload() {
     if (!bid) return
     setDownloading(true)
-    setError(null)
     try {
       const filename = `bid_${bid.project_name}_${bid.vendor_name}_v${bid.version ?? 1}.pdf`
         .replace(/\s+/g, '_').toLowerCase()
       await downloadBidPdf(bidId, filename)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Download failed')
+      setActionError(e instanceof Error ? e.message : 'Download failed')
     } finally {
       setDownloading(false)
     }
@@ -155,15 +512,22 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
   }
 
   if (!bid) {
-    return <div className="text-danger text-sm mt-8">{error ?? 'Bid not found.'}</div>
+    return <div className="text-danger text-sm mt-8">{loadError ?? 'Bid not found.'}</div>
   }
 
-  const canApprove = bid.status === 'needs_review' && allReviewed
-  const flagText = bid.generation_notes
-  const hasFlags = !!flagText && !flagsDismissed
+  const isEditable = EDITABLE_STATUSES.has(bid.status)
 
   return (
     <div className="animate-in fade-in pb-16 max-w-5xl">
+      {showAwardModal && (
+        <AwardModal
+          bid={bid}
+          onConfirm={handleAwardConfirm}
+          onCancel={() => setShowAwardModal(false)}
+          loading={actionBusy}
+        />
+      )}
+
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1 text-[11px] mb-5">
         <button
@@ -197,74 +561,60 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
               <p className="text-[11px] text-text-muted mt-0.5">
                 {bid.cost_code_name} · {bid.cost_code}
                 {bid.generated_at && (
-                  <> · Submitted {new Date(bid.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                  <> · Generated {new Date(bid.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
                 )}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className="h-8 w-8 flex items-center justify-center border border-border text-text-muted rounded-md hover:border-border-bright hover:text-text-secondary transition-colors disabled:opacity-50"
-              title="Download PDF"
-            >
-              {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            </button>
-            <button
-              onClick={handleApprove}
-              disabled={!canApprove || approving}
-              title={
-                bid.status !== 'needs_review'
-                  ? undefined
-                  : !allReviewed
-                  ? `Review ${unreviewedCount} estimated item${unreviewedCount !== 1 ? 's' : ''} first`
-                  : undefined
-              }
-              className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {approving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-              Approve bid
-            </button>
-          </div>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="h-8 w-8 flex items-center justify-center border border-border text-text-muted rounded-md hover:border-border-bright hover:text-text-secondary transition-colors disabled:opacity-50"
+            title="Download PDF"
+          >
+            {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          </button>
         </div>
 
         {/* 4-column meta strip */}
         <div className="grid grid-cols-4 gap-4 mt-5 pt-4 border-t border-border-light">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Total bid</p>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Total Bid</p>
             <p className="text-[13px] font-semibold text-primary tabular-nums">
               {bid.subtotal != null ? `$${fmt(bid.subtotal)}` : '—'}
             </p>
           </div>
           <div>
             <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Status</p>
-            <StatusText status={bid.status} />
+            <StatusBadge status={bid.status} />
           </div>
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Line items</p>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Line Items</p>
             <p className="text-[13px] font-semibold text-text-primary">{bid.line_items.length}</p>
           </div>
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">History matched</p>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">History Matched</p>
             <p className="text-[13px] font-semibold text-success">
-              {historyCount} / {bid.line_items.length} matched
+              {historyCount} / {bid.line_items.length}
             </p>
           </div>
         </div>
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-danger-bg border border-danger/20 rounded-lg mb-4 text-xs text-danger">
-          <AlertTriangle size={12} />
-          {error}
-        </div>
-      )}
+      {/* Action bar — contextual per status */}
+      <ActionBar
+        bid={bid}
+        canSend={allReviewed}
+        unreviewedCount={unreviewedCount}
+        onAction={handleAction}
+        busy={actionBusy}
+        error={actionError}
+      />
 
       {/* AI review card */}
-      {hasFlags && (
+      {bid.generation_notes && !flagsDismissed && (
         <AIReviewCard
-          notes={flagText}
+          notes={bid.generation_notes}
           unreviewedCount={unreviewedCount}
           onDismiss={() => setFlagsDismissed(true)}
         />
@@ -276,6 +626,11 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
           <p className="text-[12px] font-semibold text-text-primary">
             Line items <span className="text-text-muted font-normal">{bid.line_items.length} items</span>
           </p>
+          {unreviewedCount > 0 && bid.status === 'needs_review' && (
+            <span className="text-[11px] text-warning font-medium">
+              {unreviewedCount} estimated item{unreviewedCount !== 1 ? 's' : ''} need review
+            </span>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -305,7 +660,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                   <tr
                     key={idx}
                     className={`border-t border-border-light transition-colors ${
-                      isEstimated(item.source) && !reviewedIdxs.has(idx)
+                      isEstimated(item.source) && !reviewedIdxs.has(idx) && bid.status === 'needs_review'
                         ? 'bg-warning-bg/40 hover:bg-warning-bg/70'
                         : 'hover:bg-surface-raised/50'
                     }`}
@@ -313,7 +668,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11.5px] text-text-primary">{item.description}</span>
-                        {isEstimated(item.source) && !reviewedIdxs.has(idx) && (
+                        {isEstimated(item.source) && !reviewedIdxs.has(idx) && bid.status === 'needs_review' && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-warning-bg text-warning border border-warning/20">
                             AI flag
                           </span>
@@ -337,7 +692,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right">
-                      <span className={`text-[11.5px] font-mono tabular-nums font-medium ${isEstimated(item.source) ? 'text-warning' : 'text-text-primary'}`}>
+                      <span className={`text-[11.5px] font-mono tabular-nums font-medium ${isEstimated(item.source) && bid.status === 'needs_review' ? 'text-warning' : 'text-text-primary'}`}>
                         {item.total != null ? `$${fmt(item.total)}` : '—'}
                       </span>
                     </td>
@@ -345,7 +700,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                       <SourceBadge source={item.source} />
                     </td>
                     <td className="px-3 py-3">
-                      {bid.status !== 'approved' && (
+                      {isEditable && (
                         <button
                           onClick={() => openEdit(idx)}
                           className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-raised transition-colors"
@@ -370,16 +725,15 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                   </span>
                 </td>
                 <td />
-                <td className="px-3 py-3 text-right">
-                  <span className="text-[10px] font-semibold text-primary tabular-nums">
-                    {bid.subtotal != null ? `Bid total $${fmt(bid.subtotal)}` : ''}
-                  </span>
-                </td>
+                <td />
               </tr>
             </tfoot>
           </table>
         </div>
       </div>
+
+      {/* Communications log */}
+      <CommsLogPanel bidId={bidId} notes={bid.comms_log ?? []} />
     </div>
   )
 }

@@ -20,7 +20,12 @@ from bid_builder import (
     process_approved_takeoff,
 )
 from generator import generate_bid
-from schemas import LineItemUpdate, GenerateBidsRequest
+from schemas import (
+    LineItemUpdate,
+    GenerateBidsRequest,
+    DeclineBidRequest,
+    BidCommsNoteRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -342,16 +347,119 @@ async def update_line_item(
     return {"status": "ok", "bid_id": bid_id, "idx": idx}
 
 
+# ── Valid bid status transitions ──────────────────────────────────────────────
+
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "needs_review": {"sent"},
+    "approved": {"sent", "confirmed", "awarded", "not_awarded", "rejected"},  # legacy
+    "sent": {"confirmed", "awarded", "not_awarded", "rejected"},
+    "confirmed": {"revised", "awarded", "not_awarded", "rejected"},
+    "revised": {"confirmed", "awarded", "not_awarded", "rejected"},
+}
+
+
+def _require_bid_transition(bid: dict, target: str) -> None:
+    current = bid.get("status", "")
+    allowed = VALID_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot transition bid from '{current}' to '{target}'",
+        )
+
+
+# ── Legacy approve (Phase 3 compat) — now maps to /send ──────────────────────
+
+
 @app.post("/bids/{bid_id}/approve")
 async def approve_bid_route(bid_id: str, user: dict = Depends(require_pm)):
     bid = fs.get_bid(bid_id)
     if not bid:
         raise HTTPException(status_code=404, detail="Bid not found")
-    if bid.get("status") not in ("needs_review", "complete"):
-        raise HTTPException(status_code=400, detail="Bid is not ready for approval")
+    _require_bid_transition(bid, "sent")
     if not fs.approve_bid(bid_id, user.get("email", "")):
         raise HTTPException(status_code=404, detail="Bid not found")
-    return {"status": "approved", "bid_id": bid_id}
+    return {"status": "sent", "bid_id": bid_id}
+
+
+# ── Lifecycle transition endpoints ────────────────────────────────────────────
+
+
+@app.post("/bids/{bid_id}/send")
+async def send_bid(bid_id: str, user: dict = Depends(require_pm)):
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    _require_bid_transition(bid, "sent")
+    email = user.get("email", "")
+    if not fs.transition_bid_status(
+        bid_id, "sent", email, approved_at=None, approved_by=email
+    ):
+        raise HTTPException(status_code=404, detail="Bid not found")
+    return {"status": "sent", "bid_id": bid_id}
+
+
+@app.post("/bids/{bid_id}/confirm")
+async def confirm_bid(bid_id: str, user: dict = Depends(require_pm)):
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    _require_bid_transition(bid, "confirmed")
+    if not fs.transition_bid_status(bid_id, "confirmed", user.get("email", "")):
+        raise HTTPException(status_code=404, detail="Bid not found")
+    return {"status": "confirmed", "bid_id": bid_id}
+
+
+@app.post("/bids/{bid_id}/revise")
+async def revise_bid(bid_id: str, user: dict = Depends(require_pm)):
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    _require_bid_transition(bid, "revised")
+    if not fs.transition_bid_status(bid_id, "revised", user.get("email", "")):
+        raise HTTPException(status_code=404, detail="Bid not found")
+    return {"status": "revised", "bid_id": bid_id}
+
+
+@app.post("/bids/{bid_id}/award")
+async def award_bid(bid_id: str, user: dict = Depends(require_pm)):
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    _require_bid_transition(bid, "awarded")
+    not_awarded_ids = fs.award_bid_with_cascade(bid_id, user.get("email", ""))
+    return {"status": "awarded", "bid_id": bid_id, "not_awarded_ids": not_awarded_ids}
+
+
+@app.post("/bids/{bid_id}/decline")
+async def decline_bid(
+    bid_id: str, body: DeclineBidRequest, user: dict = Depends(require_pm)
+):
+    if body.outcome not in ("not_awarded", "rejected"):
+        raise HTTPException(
+            status_code=400, detail="outcome must be 'not_awarded' or 'rejected'"
+        )
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    _require_bid_transition(bid, body.outcome)
+    if not fs.transition_bid_status(bid_id, body.outcome, user.get("email", "")):
+        raise HTTPException(status_code=404, detail="Bid not found")
+    return {"status": body.outcome, "bid_id": bid_id}
+
+
+@app.post("/bids/{bid_id}/comms-log", status_code=201)
+async def add_comms_note(
+    bid_id: str, body: BidCommsNoteRequest, user: dict = Depends(require_pm)
+):
+    if not body.body.strip():
+        raise HTTPException(status_code=400, detail="Note body cannot be empty")
+    bid = fs.get_bid(bid_id)
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    if not fs.add_bid_comms_note(bid_id, user.get("email", ""), body.body.strip()):
+        raise HTTPException(status_code=404, detail="Bid not found")
+    return {"status": "ok", "bid_id": bid_id}
 
 
 @app.get("/bids/{bid_id}/pdf")

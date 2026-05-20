@@ -179,18 +179,98 @@ def update_line_item(bid_id, idx, unit_price, quantity, notes) -> bool:
 
 
 def approve_bid(bid_id, approved_by) -> bool:
+    """Legacy — transitions needs_review → sent (was 'approved', now aligns with lifecycle)."""
+    return transition_bid_status(
+        bid_id,
+        "sent",
+        approved_by,
+        approved_at=datetime.now(timezone.utc),
+        approved_by=approved_by,
+    )
+
+
+def transition_bid_status(
+    bid_id: str, new_status: str, by: str, **extra_fields
+) -> bool:
+    """Update bid status + updated_at. Caller is responsible for transition validation."""
     db = get_db()
     ref = db.collection("apps").document("vendy").collection("bids").document(bid_id)
-    doc = ref.get()
-    if not doc.exists:
+    if not ref.get().exists:
         return False
-    ref.update(
-        {
-            "status": "approved",
-            "approved_at": datetime.now(timezone.utc),
-            "approved_by": approved_by,
-        }
+    update: dict = {
+        "status": new_status,
+        "updated_at": datetime.now(timezone.utc),
+        **extra_fields,
+    }
+    ref.update(update)
+    return True
+
+
+def award_bid_with_cascade(bid_id: str, awarded_by: str) -> list[str]:
+    """Award one bid and batch-set all other active bids for the same project+cost_code to not_awarded.
+    Returns list of bid_ids that were automatically marked not_awarded."""
+    db = get_db()
+    bid_ref = (
+        db.collection("apps").document("vendy").collection("bids").document(bid_id)
     )
+    bid_doc = bid_ref.get()
+    if not bid_doc.exists:
+        return []
+
+    bid = bid_doc.to_dict() or {}
+    project_id = bid.get("project_id")
+    cost_code = bid.get("cost_code")
+
+    # All bids for same project + cost_code
+    sibling_docs = list(
+        db.collection("apps")
+        .document("vendy")
+        .collection("bids")
+        .where(filter=firestore.FieldFilter("project_id", "==", project_id))
+        .where(filter=firestore.FieldFilter("cost_code", "==", cost_code))
+        .stream()
+    )
+
+    now = datetime.now(timezone.utc)
+    batch = db.batch()
+    TERMINAL = {"awarded", "not_awarded", "rejected", "failed", "generating"}
+
+    batch.update(
+        bid_ref,
+        {
+            "status": "awarded",
+            "awarded_at": now,
+            "awarded_by": awarded_by,
+            "updated_at": now,
+        },
+    )
+
+    not_awarded_ids: list[str] = []
+    for doc in sibling_docs:
+        if doc.id == bid_id:
+            continue
+        current = (doc.to_dict() or {}).get("status", "")
+        if current in TERMINAL:
+            continue
+        batch.update(doc.reference, {"status": "not_awarded", "updated_at": now})
+        not_awarded_ids.append(doc.id)
+
+    batch.commit()
+    return not_awarded_ids
+
+
+def add_bid_comms_note(bid_id: str, author: str, body: str) -> bool:
+    """Append a note to the comms_log array on the bid document."""
+    db = get_db()
+    ref = db.collection("apps").document("vendy").collection("bids").document(bid_id)
+    if not ref.get().exists:
+        return False
+    entry = {
+        "author": author,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "body": body,
+    }
+    ref.update({"comms_log": firestore.ArrayUnion([entry])})
     return True
 
 

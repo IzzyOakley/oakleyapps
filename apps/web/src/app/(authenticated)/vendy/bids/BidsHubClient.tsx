@@ -15,11 +15,15 @@ function fmt(n: number) {
 
 type ProjectGroup = 'needs_review' | 'in_progress' | 'completed'
 
+const TERMINAL = new Set(['awarded', 'not_awarded', 'rejected'])
+const PENDING = new Set(['needs_review', 'failed'])
+
 function getProjectGroup(bids: BidDocument[]): ProjectGroup {
   if (!bids.length) return 'needs_review'
-  const statuses = bids.map(b => b.status)
-  if (statuses.every(s => s === 'awarded' || s === 'not_awarded')) return 'completed'
-  if (statuses.some(s => s === 'needs_review' || s === 'failed')) return 'needs_review'
+  const active = bids.filter(b => b.status !== 'generating')
+  if (!active.length) return 'needs_review'
+  if (active.every(b => TERMINAL.has(b.status))) return 'completed'
+  if (active.some(b => PENDING.has(b.status))) return 'needs_review'
   return 'in_progress'
 }
 
@@ -81,7 +85,7 @@ export default function BidsHubClient() {
 
   // Summary stats
   const totalBidValue = Array.from(bidsMap.values()).flat().reduce((s, b) => s + (b.subtotal ?? 0), 0)
-  const totalNeedsReview = Array.from(bidsMap.values()).flat().filter(b => b.status === 'needs_review').length
+  const totalNeedsReview = Array.from(bidsMap.values()).flat().filter(b => b.status === 'needs_review' || b.status === 'approved').length
 
   return (
     <div className="animate-in fade-in max-w-3xl">

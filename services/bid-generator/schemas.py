@@ -8,6 +8,14 @@ class LineItemUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class DeclineBidRequest(BaseModel):
+    outcome: str = "not_awarded"  # "not_awarded" | "rejected"
+
+
+class BidCommsNoteRequest(BaseModel):
+    body: str
+
+
 class GenerateBidsRequest(BaseModel):
     # Optional per-cost-code vendor override.
     # If omitted, all vendors from the cost code's vendors[] field are used.

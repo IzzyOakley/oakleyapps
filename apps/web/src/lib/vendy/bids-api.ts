@@ -151,6 +151,38 @@ export async function approveBid(bidId: string): Promise<void> {
   await fetchBids(`bids/${bidId}/approve`, { method: 'POST' })
 }
 
+export async function sendBid(bidId: string): Promise<void> {
+  await fetchBids(`bids/${bidId}/send`, { method: 'POST' })
+}
+
+export async function confirmBid(bidId: string): Promise<void> {
+  await fetchBids(`bids/${bidId}/confirm`, { method: 'POST' })
+}
+
+export async function reviseBid(bidId: string): Promise<void> {
+  await fetchBids(`bids/${bidId}/revise`, { method: 'POST' })
+}
+
+export async function awardBid(bidId: string): Promise<{ status: string; not_awarded_ids: string[] }> {
+  return fetchBids(`bids/${bidId}/award`, { method: 'POST' })
+}
+
+export async function declineBid(bidId: string, outcome: 'not_awarded' | 'rejected'): Promise<void> {
+  await fetchBids(`bids/${bidId}/decline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome }),
+  })
+}
+
+export async function addBidCommsNote(bidId: string, body: string): Promise<void> {
+  await fetchBids(`bids/${bidId}/comms-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+}
+
 /**
  * Downloads the bid PDF directly as a blob — no signed URL needed.
  * Returns a temporary object URL the caller should revoke after use.
