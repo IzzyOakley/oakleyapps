@@ -5,6 +5,13 @@ export interface VendorCostCode {
   name: string
 }
 
+export interface CostCodeOption {
+  full_code: string
+  name: string
+  category: string
+  vendors: string[]
+}
+
 export interface VendorSummary {
   vendor_id: string
   name: string
@@ -128,6 +135,24 @@ export async function getVendorBidLedger(
   const res = await fetch(`${BASE}/vendors/${slug}/bid-ledger?${params}`)
   if (!res.ok) throw new Error(`getVendorBidLedger: ${res.status}`)
   return res.json()
+}
+
+export async function listAllCostCodes(): Promise<CostCodeOption[]> {
+  const res = await fetch(`${BASE}/cost-codes`)
+  if (!res.ok) throw new Error(`listAllCostCodes: ${res.status}`)
+  return res.json()
+}
+
+export async function updateVendorCostCodes(
+  slug: string,
+  costCodes: string[]
+): Promise<void> {
+  const res = await fetch(`${BASE}/vendors/${slug}/cost-codes`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cost_codes: costCodes }),
+  })
+  if (!res.ok) throw new Error(`updateVendorCostCodes: ${res.status}`)
 }
 
 export async function createCostCode(data: {

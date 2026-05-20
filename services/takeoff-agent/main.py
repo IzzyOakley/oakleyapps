@@ -20,6 +20,7 @@ from schemas import (
     CreateVendorRequest,
     UpdateVendorRequest,
     CreateCostCodeRequest,
+    UpdateVendorCostCodesRequest,
 )
 
 # ── Internal service secret ──────────────────────────────────────────────────
@@ -530,6 +531,11 @@ async def get_vendor_bid_ledger(
 # ── Cost Codes ────────────────────────────────────────────────────────────────
 
 
+@app.get("/cost-codes")
+async def list_cost_codes(user: dict = Depends(get_current_user)) -> list[dict]:
+    return fs.list_all_cost_codes()
+
+
 @app.post("/cost-codes", status_code=201)
 async def create_cost_code(
     body: CreateCostCodeRequest,
@@ -540,6 +546,19 @@ async def create_cost_code(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"full_code": code}
+
+
+@app.put("/vendors/{slug}/cost-codes")
+async def update_vendor_cost_codes(
+    slug: str,
+    body: UpdateVendorCostCodesRequest,
+    user: dict = Depends(require_management),
+) -> dict:
+    vendor = fs.get_vendor_full(slug)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    fs.update_vendor_cost_codes(slug, body.cost_codes)
+    return {"vendor_id": slug, "cost_codes": body.cost_codes}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

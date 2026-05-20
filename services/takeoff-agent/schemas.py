@@ -77,3 +77,7 @@ class CreateCostCodeRequest(BaseModel):
     full_code: str
     name: str
     category: str
+
+
+class UpdateVendorCostCodesRequest(BaseModel):
+    cost_codes: list[str]  # full_code values that should be linked to the vendor

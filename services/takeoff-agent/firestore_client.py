@@ -411,6 +411,55 @@ def list_cost_codes_for_vendor(slug: str) -> list[dict]:
     ]
 
 
+def list_all_cost_codes() -> list[dict]:
+    """Return all cost codes sorted by full_code, with their vendors list."""
+    db = get_db()
+    docs = db.collection("apps").document("shared").collection("cost_codes").stream()
+    result = []
+    for d in docs:
+        data = d.to_dict() or {}
+        result.append(
+            {
+                "full_code": d.id,
+                "name": data.get("name", ""),
+                "category": data.get("category", ""),
+                "vendors": data.get("vendors", []),
+            }
+        )
+    result.sort(key=lambda c: c["full_code"])
+    return result
+
+
+def update_vendor_cost_codes(slug: str, new_codes: list[str]) -> None:
+    """Replace the full set of cost codes linked to a vendor via batch write.
+    Diffs current state and only touches affected cost code docs."""
+    db = get_db()
+    # Find codes currently linked to this vendor
+    current_docs = (
+        db.collection("apps")
+        .document("shared")
+        .collection("cost_codes")
+        .where(filter=firestore.FieldFilter("vendors", "array_contains", slug))
+        .stream()
+    )
+    current_codes = {d.id for d in current_docs}
+    new_codes_set = set(new_codes)
+
+    to_add = new_codes_set - current_codes
+    to_remove = current_codes - new_codes_set
+
+    if not to_add and not to_remove:
+        return
+
+    col = db.collection("apps").document("shared").collection("cost_codes")
+    batch = db.batch()
+    for code in to_add:
+        batch.update(col.document(code), {"vendors": firestore.ArrayUnion([slug])})
+    for code in to_remove:
+        batch.update(col.document(code), {"vendors": firestore.ArrayRemove([slug])})
+    batch.commit()
+
+
 def list_cost_codes_for_vendors(vendor_slugs: list[str]) -> dict[str, list[dict]]:
     """Return {vendor_slug: [{full_code, name}]} in a single pass over cost_codes."""
     if not vendor_slugs:

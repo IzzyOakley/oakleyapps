@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, CheckCircle, XCircle, ChevronDown,
   ChevronRight, Loader2, AlertTriangle, BookOpen, ToggleLeft,
-  ToggleRight, Pencil, Mail, Briefcase, Check, X,
+  ToggleRight, Pencil, Mail, Check, X, Search,
 } from 'lucide-react'
 import {
-  getVendor, updateVendor, getVendorBidLedger,
-  type VendorDetail, type VendorCostCode, type BidLedgerEntry, type PriceBookEntry,
+  getVendor, updateVendor, updateVendorCostCodes, listAllCostCodes, getVendorBidLedger,
+  type VendorDetail, type VendorCostCode, type CostCodeOption,
+  type BidLedgerEntry, type PriceBookEntry,
 } from '@/lib/vendy/vendors-api'
 
 function fmt(n: number | null | undefined, decimals = 2) {
@@ -42,6 +43,103 @@ function CostCodePills({ codes }: { codes: VendorCostCode[] }) {
           {c.full_code}·{c.name}
         </span>
       ))}
+    </div>
+  )
+}
+
+function CostCodePicker({
+  allCodes,
+  selected,
+  onChange,
+  loading,
+}: {
+  allCodes: CostCodeOption[]
+  selected: Set<string>
+  onChange: (codes: Set<string>) => void
+  loading: boolean
+}) {
+  const [search, setSearch] = useState('')
+
+  const filtered = allCodes.filter(
+    c =>
+      !search ||
+      c.full_code.toLowerCase().includes(search.toLowerCase()) ||
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.category.toLowerCase().includes(search.toLowerCase())
+  )
+
+  // Group by category, sorted
+  const grouped = filtered.reduce<Record<string, CostCodeOption[]>>((acc, c) => {
+    const cat = c.category || 'Other'
+    ;(acc[cat] ??= []).push(c)
+    return acc
+  }, {})
+
+  function toggle(code: string) {
+    const next = new Set(selected)
+    if (next.has(code)) next.delete(code)
+    else next.add(code)
+    onChange(next)
+  }
+
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden">
+      {/* Search bar + count */}
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search cost codes..."
+            className="w-full pl-7 pr-3 py-1.5 text-[12px] bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+          />
+        </div>
+        <span className="text-[11px] font-semibold text-violet-600 shrink-0">
+          {selected.size} selected
+        </span>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={18} className="animate-spin text-violet-500" />
+        </div>
+      ) : (
+        <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+          {Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([cat, codes]) => (
+              <div key={cat}>
+                <div className="px-3 py-1.5 bg-gray-50 sticky top-0 z-10">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    {cat}
+                  </span>
+                </div>
+                {codes.map(c => (
+                  <label
+                    key={c.full_code}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-violet-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.full_code)}
+                      onChange={() => toggle(c.full_code)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500 shrink-0"
+                    />
+                    <span className="text-[10px] font-semibold text-gray-400 w-9 shrink-0">
+                      {c.full_code}
+                    </span>
+                    <span className="text-[12px] text-gray-800">{c.name}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+          {filtered.length === 0 && (
+            <p className="text-[12px] text-gray-400 text-center py-6">No cost codes match.</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -245,18 +343,32 @@ interface HeaderCardProps {
 function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
-  const [editTrade, setEditTrade] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [togglingActive, setTogglingActive] = useState(false)
 
-  function startEdit() {
+  // Cost code picker state
+  const [allCodes, setAllCodes] = useState<CostCodeOption[]>([])
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
+  const [loadingCodes, setLoadingCodes] = useState(false)
+
+  async function startEdit() {
     setEditName(vendor.name || '')
-    setEditTrade(vendor.trade || '')
     setEditEmail(vendor.contact_email || '')
+    // Pre-select current vendor cost codes
+    setSelectedCodes(new Set((vendor.cost_codes ?? []).map(c => c.full_code)))
     setSaveError(null)
     setIsEditing(true)
+    // Fetch all cost codes for the picker
+    if (allCodes.length === 0) {
+      setLoadingCodes(true)
+      try {
+        const codes = await listAllCostCodes()
+        setAllCodes(codes)
+      } catch { /* ignore — picker will show empty */ }
+      finally { setLoadingCodes(false) }
+    }
   }
 
   function cancelEdit() {
@@ -265,16 +377,24 @@ function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
   }
 
   async function saveInfo() {
-    const updates: Record<string, string> = {}
-    if (editName.trim()) updates.name = editName.trim()
-    if (editTrade.trim()) updates.trade = editTrade.trim()
-    if (editEmail.trim()) updates.contact_email = editEmail.trim()
-    if (Object.keys(updates).length === 0) { cancelEdit(); return }
     setSaving(true)
     setSaveError(null)
     try {
-      await updateVendor(slug, updates)
-      onUpdated(updates as Partial<VendorDetail>)
+      // Update vendor fields (name, email)
+      const updates: Record<string, string> = {}
+      if (editName.trim()) updates.name = editName.trim()
+      if (editEmail.trim()) updates.contact_email = editEmail.trim()
+      if (Object.keys(updates).length > 0) {
+        await updateVendor(slug, updates)
+      }
+      // Update cost codes (always sync — even if unchanged, it's idempotent)
+      const newCodesList = [...selectedCodes]
+      await updateVendorCostCodes(slug, newCodesList)
+      // Reflect changes locally
+      const newCostCodes = allCodes
+        .filter(c => selectedCodes.has(c.full_code))
+        .map(c => ({ full_code: c.full_code, name: c.name }))
+      onUpdated({ ...(updates as Partial<VendorDetail>), cost_codes: newCostCodes })
       setIsEditing(false)
     } catch {
       setSaveError('Failed to save. Please try again.')
@@ -304,33 +424,22 @@ function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
           </div>
           <div className="flex-1 min-w-0">
             {isEditing ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {saveError && (
                   <p className="text-[11px] text-red-600 flex items-center gap-1">
                     <AlertTriangle size={11} /> {saveError}
                   </p>
                 )}
-                <div>
-                  <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Vendor Name</label>
-                  <input
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    placeholder="e.g. A&E Roofing & Siding"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-[14px] font-semibold text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                  />
-                </div>
+                {/* Row: Name + Email */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Trade / Specialty</label>
-                    <div className="relative">
-                      <Briefcase size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        value={editTrade}
-                        onChange={e => setEditTrade(e.target.value)}
-                        placeholder="e.g. Roofing"
-                        className="w-full pl-7 pr-3 border border-gray-300 rounded-lg py-1.5 text-[13px] text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                      />
-                    </div>
+                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Vendor Name</label>
+                    <input
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      placeholder="e.g. A&E Roofing & Siding"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-[13px] font-semibold text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                    />
                   </div>
                   <div>
                     <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Contact Email</label>
@@ -345,6 +454,18 @@ function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
                       />
                     </div>
                   </div>
+                </div>
+                {/* Cost code picker */}
+                <div>
+                  <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Cost Codes &amp; Trades
+                  </label>
+                  <CostCodePicker
+                    allCodes={allCodes}
+                    selected={selectedCodes}
+                    onChange={setSelectedCodes}
+                    loading={loadingCodes}
+                  />
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button
