@@ -125,7 +125,6 @@ export default function ProjectBidsClient({ projectId }: Props) {
       {hasBids ? (
         <BidsMatrix
           bids={bids}
-          projectId={projectId}
           onBidApproved={loadBids}
           onError={setError}
           onNavigate={(bidId) => router.push(`/vendy/bids/${projectId}/${bidId}`)}
@@ -419,10 +418,9 @@ function CostCodeVendorRow({
 // ── Phase B: Bids matrix ──────────────────────────────────────────────────────
 
 function BidsMatrix({
-  bids, projectId, onBidApproved, onError, onNavigate,
+  bids, onBidApproved, onError, onNavigate,
 }: {
   bids: Bid[]
-  projectId: string
   onBidApproved: () => void
   onError: (msg: string) => void
   onNavigate: (bidId: string) => void
@@ -579,7 +577,7 @@ function ConfirmModal({
         <p className="text-[12px] text-text-secondary mb-5 leading-relaxed">
           The system will generate{' '}
           <span className="font-semibold text-text-primary">{totalVendors} bid document{totalVendors !== 1 ? 's' : ''}</span>{' '}
-          across <span className="font-semibold text-text-primary">{totalCodes} cost code{totalCodes !== 1 ? 's' : ''}</span> using each vendor's pricing history.
+          across <span className="font-semibold text-text-primary">{totalCodes} cost code{totalCodes !== 1 ? 's' : ''}</span> using each vendor&apos;s pricing history.
         </p>
         <div className="flex items-center gap-2">
           <button

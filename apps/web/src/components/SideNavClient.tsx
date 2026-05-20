@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, FileText, RefreshCw, Shield, LogOut, Ruler, FileOutput } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, Shield, LogOut, Ruler, FileOutput } from 'lucide-react'
 import type { AuthUser, UserRole } from '@/types/auth'
 import type { JSX } from 'react'
 

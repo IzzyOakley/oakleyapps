@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronLeft, ChevronRight, Loader2, CheckCircle, Download,
+  ChevronRight, Loader2, CheckCircle, Download,
   Edit2, AlertTriangle, X, Check, Sparkles,
 } from 'lucide-react'
 import { getBidDetail, updateBidLineItem, approveBidDocument } from '@/lib/vendy/api'
