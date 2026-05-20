@@ -260,7 +260,11 @@ def list_vendors(active_only: bool = False) -> list[dict]:
         docs = col.where(filter=firestore.FieldFilter("active", "==", True)).stream()
     else:
         docs = col.stream()
-    return [{"vendor_id": d.id, **d.to_dict()} for d in docs]
+    return [
+        {"vendor_id": d.id, **d.to_dict()}
+        for d in docs
+        if not d.id.startswith("_")  # skip _schema / meta docs
+    ]
 
 
 def get_vendor_full(slug: str) -> dict | None:
@@ -304,11 +308,18 @@ def create_vendor(name: str, trade: str, contact_email: str, bid_format: str) ->
 
 
 def update_vendor_active(slug: str, active: bool) -> bool:
+    return update_vendor(slug, {"active": active})
+
+
+def update_vendor(slug: str, updates: dict) -> bool:
+    """Update any combination of vendor fields. None values are skipped."""
     db = get_db()
     ref = db.collection("apps").document("vendy").collection("vendors").document(slug)
     if not ref.get().exists:
         return False
-    ref.update({"active": active})
+    non_null = {k: v for k, v in updates.items() if v is not None}
+    if non_null:
+        ref.update(non_null)
     return True
 
 

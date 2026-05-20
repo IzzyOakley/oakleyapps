@@ -67,7 +67,10 @@ class CreateVendorRequest(BaseModel):
 
 
 class UpdateVendorRequest(BaseModel):
-    active: bool
+    active: Optional[bool] = None
+    name: Optional[str] = None
+    trade: Optional[str] = None
+    contact_email: Optional[str] = None
 
 
 class CreateCostCodeRequest(BaseModel):

@@ -93,17 +93,22 @@ export async function createVendor(data: {
   return res.json()
 }
 
-export async function updateVendorActive(
+export async function updateVendor(
   slug: string,
-  active: boolean
-): Promise<{ vendor_id: string; active: boolean }> {
+  data: { active?: boolean; name?: string; trade?: string; contact_email?: string }
+): Promise<{ vendor_id: string } & typeof data> {
   const res = await fetch(`${BASE}/vendors/${slug}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ active }),
+    body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error(`updateVendorActive: ${res.status}`)
+  if (!res.ok) throw new Error(`updateVendor: ${res.status}`)
   return res.json()
+}
+
+/** @deprecated use updateVendor({ active }) instead */
+export async function updateVendorActive(slug: string, active: boolean) {
+  return updateVendor(slug, { active })
 }
 
 export async function getVendorBidLedger(

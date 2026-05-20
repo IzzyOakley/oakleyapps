@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, CheckCircle, XCircle, ChevronDown,
-  ChevronRight, Loader2, AlertTriangle, BookOpen, ToggleLeft, ToggleRight,
+  ChevronRight, Loader2, AlertTriangle, BookOpen, ToggleLeft,
+  ToggleRight, Pencil, Mail, Briefcase, Check, X,
 } from 'lucide-react'
 import {
-  getVendor, updateVendorActive, getVendorBidLedger,
+  getVendor, updateVendor, getVendorBidLedger,
   type VendorDetail, type BidLedgerEntry, type PriceBookEntry,
 } from '@/lib/vendy/vendors-api'
 
@@ -19,6 +20,14 @@ function fmt(n: number | null | undefined, decimals = 2) {
 function fmtDate(s: string | null | undefined) {
   if (!s) return '—'
   return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function deslugify(slug: string) {
+  return slug.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function displayName(vendor: VendorDetail) {
+  return vendor.name?.trim() || deslugify(vendor.vendor_id)
 }
 
 // ── Price Book Panel ──────────────────────────────────────────────────────────
@@ -192,25 +201,242 @@ function BidLedgerTable({ slug }: { slug: string }) {
           </div>
           {(hasMore || page > 1) && (
             <div className="flex items-center justify-between mt-3 text-[12px] text-gray-500">
-              <button
-                disabled={page === 1}
-                onClick={() => setPage(p => p - 1)}
-                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"
-              >
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors">
                 Previous
               </button>
               <span>Page {page}</span>
-              <button
-                disabled={!hasMore}
-                onClick={() => setPage(p => p + 1)}
-                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"
-              >
+              <button disabled={!hasMore} onClick={() => setPage(p => p + 1)}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors">
                 Next
               </button>
             </div>
           )}
         </>
       )}
+    </div>
+  )
+}
+
+// ── Vendor Header Card ────────────────────────────────────────────────────────
+
+interface HeaderCardProps {
+  vendor: VendorDetail
+  slug: string
+  onUpdated: (updated: Partial<VendorDetail>) => void
+}
+
+function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editTrade, setEditTrade] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [togglingActive, setTogglingActive] = useState(false)
+
+  function startEdit() {
+    setEditName(vendor.name || '')
+    setEditTrade(vendor.trade || '')
+    setEditEmail(vendor.contact_email || '')
+    setSaveError(null)
+    setIsEditing(true)
+  }
+
+  function cancelEdit() {
+    setIsEditing(false)
+    setSaveError(null)
+  }
+
+  async function saveInfo() {
+    const updates: Record<string, string> = {}
+    if (editName.trim()) updates.name = editName.trim()
+    if (editTrade.trim()) updates.trade = editTrade.trim()
+    if (editEmail.trim()) updates.contact_email = editEmail.trim()
+    if (Object.keys(updates).length === 0) { cancelEdit(); return }
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await updateVendor(slug, updates)
+      onUpdated(updates as Partial<VendorDetail>)
+      setIsEditing(false)
+    } catch {
+      setSaveError('Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleActive() {
+    setTogglingActive(true)
+    try {
+      await updateVendor(slug, { active: !vendor.active })
+      onUpdated({ active: !vendor.active })
+    } catch { /* ignore */ }
+    finally { setTogglingActive(false) }
+  }
+
+  const pb = vendor.price_book ?? { last_updated: null, bids_processed: 0, categories: {} }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-5">
+      {/* Top row */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-4 flex-1 min-w-0">
+          <div className="w-12 h-12 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+            <Building2 size={22} className="text-violet-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            {isEditing ? (
+              <div className="space-y-3">
+                {saveError && (
+                  <p className="text-[11px] text-red-600 flex items-center gap-1">
+                    <AlertTriangle size={11} /> {saveError}
+                  </p>
+                )}
+                <div>
+                  <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Vendor Name</label>
+                  <input
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    placeholder="e.g. A&E Roofing & Siding"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-[14px] font-semibold text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Trade / Specialty</label>
+                    <div className="relative">
+                      <Briefcase size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        value={editTrade}
+                        onChange={e => setEditTrade(e.target.value)}
+                        placeholder="e.g. Roofing"
+                        className="w-full pl-7 pr-3 border border-gray-300 rounded-lg py-1.5 text-[13px] text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Contact Email</label>
+                    <div className="relative">
+                      <Mail size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="email"
+                        value={editEmail}
+                        onChange={e => setEditEmail(e.target.value)}
+                        placeholder="contact@vendor.com"
+                        className="w-full pl-7 pr-3 border border-gray-300 rounded-lg py-1.5 text-[13px] text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={saveInfo}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-[12px] font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                  >
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={12} /> Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <h1 className="text-[20px] font-bold text-gray-900 leading-tight">{displayName(vendor)}</h1>
+                  {vendor.active ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">
+                      <CheckCircle size={10} /> Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5 shrink-0">
+                      <XCircle size={10} /> Inactive
+                    </span>
+                  )}
+                </div>
+
+                {/* Contact details row */}
+                <div className="flex flex-wrap items-center gap-4 mt-2">
+                  <div className="flex items-center gap-1.5">
+                    <Briefcase size={12} className="text-gray-400 shrink-0" />
+                    {vendor.trade ? (
+                      <span className="text-[13px] text-gray-700 font-medium">{vendor.trade}</span>
+                    ) : (
+                      <button onClick={startEdit} className="text-[12px] text-violet-500 hover:underline italic">Add trade</button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Mail size={12} className="text-gray-400 shrink-0" />
+                    {vendor.contact_email ? (
+                      <a href={`mailto:${vendor.contact_email}`} className="text-[13px] text-violet-600 hover:underline font-medium">
+                        {vendor.contact_email}
+                      </a>
+                    ) : (
+                      <button onClick={startEdit} className="text-[12px] text-violet-500 hover:underline italic">Add email</button>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-gray-400">
+                    {vendor.bid_format === 'itemized' ? 'Itemized bids' : 'Lump-sum bids'} · ID: {vendor.vendor_id}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        {!isEditing && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={startEdit}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Pencil size={12} /> Edit
+            </button>
+            <button
+              onClick={toggleActive}
+              disabled={togglingActive}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+                vendor.active
+                  ? 'border-red-200 text-red-600 hover:bg-red-50'
+                  : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
+              } disabled:opacity-40`}
+            >
+              {togglingActive ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : vendor.active ? (
+                <ToggleLeft size={13} />
+              ) : (
+                <ToggleRight size={13} />
+              )}
+              {vendor.active ? 'Deactivate' : 'Activate'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-gray-100">
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Bids Processed</p>
+          <p className="text-[22px] font-bold text-gray-900">{pb.bids_processed}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Cost Codes Tracked</p>
+          <p className="text-[22px] font-bold text-gray-900">{Object.keys(pb.categories ?? {}).length}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Last Activity</p>
+          <p className="text-[14px] font-semibold text-gray-800">{fmtDate(pb.last_updated)}</p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -225,7 +451,6 @@ export default function VendorProfileClient({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [tab, setTab] = useState<Tab>('price_book')
-  const [togglingActive, setTogglingActive] = useState(false)
 
   useEffect(() => {
     getVendor(slug)
@@ -234,17 +459,8 @@ export default function VendorProfileClient({ slug }: { slug: string }) {
       .finally(() => setLoading(false))
   }, [slug])
 
-  async function handleToggleActive() {
-    if (!vendor) return
-    setTogglingActive(true)
-    try {
-      const { active } = await updateVendorActive(slug, !vendor.active)
-      setVendor(prev => prev ? { ...prev, active } : prev)
-    } catch {
-      /* ignore */
-    } finally {
-      setTogglingActive(false)
-    }
+  function handleUpdated(updated: Partial<VendorDetail>) {
+    setVendor(prev => prev ? { ...prev, ...updated } : prev)
   }
 
   if (loading) {
@@ -280,68 +496,8 @@ export default function VendorProfileClient({ slug }: { slug: string }) {
           <ArrowLeft size={14} /> All Vendors
         </button>
 
-        {/* Header card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
-                <Building2 size={22} className="text-violet-600" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                  <h1 className="text-[20px] font-bold text-gray-900">{vendor.name}</h1>
-                  {vendor.active ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                      <CheckCircle size={10} /> Active
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5">
-                      <XCircle size={10} /> Inactive
-                    </span>
-                  )}
-                </div>
-                <p className="text-[13px] text-gray-500">{vendor.trade} · {vendor.contact_email}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  {vendor.bid_format === 'itemized' ? 'Itemized bids' : 'Lump-sum bids'} · ID: {vendor.vendor_id}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleToggleActive}
-              disabled={togglingActive}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-                vendor.active
-                  ? 'border-red-200 text-red-600 hover:bg-red-50'
-                  : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
-              } disabled:opacity-40`}
-            >
-              {togglingActive ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : vendor.active ? (
-                <ToggleLeft size={13} />
-              ) : (
-                <ToggleRight size={13} />
-              )}
-              {vendor.active ? 'Deactivate' : 'Activate'}
-            </button>
-          </div>
-
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-gray-100">
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Bids Processed</p>
-              <p className="text-[20px] font-bold text-gray-900">{pb.bids_processed}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Cost Codes Tracked</p>
-              <p className="text-[20px] font-bold text-gray-900">{Object.keys(pb.categories ?? {}).length}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Last Activity</p>
-              <p className="text-[14px] font-semibold text-gray-800">{fmtDate(pb.last_updated)}</p>
-            </div>
-          </div>
-        </div>
+        {/* Header card with edit capability */}
+        <VendorHeaderCard vendor={vendor} slug={slug} onUpdated={handleUpdated} />
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-white border border-gray-200 rounded-xl p-1 w-fit">

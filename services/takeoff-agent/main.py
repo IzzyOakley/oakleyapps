@@ -482,10 +482,21 @@ async def update_vendor(
     body: UpdateVendorRequest,
     user: dict = Depends(require_management),
 ) -> dict:
-    updated = fs.update_vendor_active(slug, body.active)
+    updates = {}
+    if body.active is not None:
+        updates["active"] = body.active
+    if body.name is not None:
+        updates["name"] = body.name.strip()
+    if body.trade is not None:
+        updates["trade"] = body.trade.strip()
+    if body.contact_email is not None:
+        updates["contact_email"] = body.contact_email.strip()
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    updated = fs.update_vendor(slug, updates)
     if not updated:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    return {"vendor_id": slug, "active": body.active}
+    return {"vendor_id": slug, **updates}
 
 
 @app.get("/vendors/{slug}/bid-ledger")

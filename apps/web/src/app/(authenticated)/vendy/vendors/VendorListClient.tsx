@@ -21,6 +21,14 @@ function slugify(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
 }
 
+function deslugify(slug: string) {
+  return slug.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function displayName(vendor: VendorSummary) {
+  return vendor.name?.trim() || deslugify(vendor.vendor_id)
+}
+
 function fmt(n: number) {
   return n.toLocaleString('en-US')
 }
@@ -34,7 +42,7 @@ function VendorCard({ vendor, onClick }: { vendor: VendorSummary; onClick: () =>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[13px] font-semibold text-gray-900 truncate">{vendor.name}</span>
+            <span className="text-[13px] font-semibold text-gray-900 truncate">{displayName(vendor)}</span>
             {vendor.active ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                 <CheckCircle size={10} /> Active
@@ -45,7 +53,7 @@ function VendorCard({ vendor, onClick }: { vendor: VendorSummary; onClick: () =>
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-500 mb-3">{vendor.trade}</p>
+          <p className="text-[11px] text-gray-500 mb-3">{vendor.trade || <span className="italic text-gray-400">No trade set</span>}</p>
           <div className="flex items-center gap-4">
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Bids Processed</p>
