@@ -23,7 +23,8 @@ Work entirely within the existing monorepo.
 | 0 | Foundation | ✅ Complete |
 | 1 | Takeoff Feature | ✅ Complete — live in production |
 | 2 | Cloud Run Deployment | ✅ Complete |
-| 3 | Bid Generator | ⬜ Not started |
+| 3A | Bid Generator — Backend | ✅ Complete |
+| 3B | Bid Generator — Frontend | ⬜ Not started |
 | 4 | Vendor Intelligence | ⬜ Not started |
 | 5 | Bid Lifecycle | ⬜ Not started |
 | 6 | Analytics & Reporting | ⬜ Not started |
@@ -64,17 +65,34 @@ oakleyapps/
 │       ├── api.ts                           # ⚠ EXISTING — add functions, don't remove
 │       └── types.ts                         # ⚠ EXISTING — add types, don't remove
 │
-└── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
-    ├── main.py                              # Add new endpoints here
-    ├── extractor.py                         # Claude API call for takeoff extraction
-    ├── firestore_client.py                  # Add new Firestore functions here
-    ├── gcs_client.py                        # GCS operations
-    ├── pubsub_client.py                     # Pub/Sub publish
-    ├── schemas.py                           # Add new Pydantic models here
-    ├── prompts/takeoff_v1.md                # Claude system prompt for takeoff
-    ├── requirements.txt
-    ├── Dockerfile
-    └── start-dev.sh
+├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
+│   ├── main.py                              # Add new endpoints here
+│   ├── extractor.py                         # Claude API call for takeoff extraction
+│   ├── firestore_client.py                  # Add new Firestore functions here
+│   ├── gcs_client.py                        # GCS operations
+│   ├── pubsub_client.py                     # Pub/Sub publish
+│   ├── schemas.py                           # Add new Pydantic models here
+│   ├── prompts/takeoff_v1.md                # Claude system prompt for takeoff
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── start-dev.sh
+│
+├── services/bid-generator/                  # Python FastAPI on Cloud Run — bid generation
+│   ├── main.py                              # FastAPI app, lifespan startup, all endpoints
+│   ├── bid_builder.py                       # Pricing logic, generate_bid orchestration
+│   ├── firestore_client.py                  # Bid CRUD, vendor/cost_code queries, log_run
+│   ├── generator.py                         # Claude API call for bid generation
+│   ├── pubsub_subscriber.py                 # Streaming pull from takeoff-events-bid-generator
+│   ├── pdf_client.py                        # ReportLab PDF generation
+│   ├── schemas.py                           # Pydantic models
+│   ├── prompts/bid_gen_v1.md                # Claude system prompt for bid generation
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── tests/test_bid_builder.py            # Unit tests — 4 pricing tiers
+│
+└── .github/workflows/
+    ├── takeoff-agent.yml                    # CI/CD for takeoff-agent Cloud Run service
+    └── bid-generator.yml                    # CI/CD for bid-generator Cloud Run service
 ```
 
 ---
@@ -134,7 +152,7 @@ Everything lives under the `apps` top-level collection:
 ```
 apps/vendy/vendors/{vendor_slug}       vendor profiles + pricing intelligence
   └── bid_ledger/{bid_id}              one doc per processed bid outcome (NEW)
-apps/vendy/bids/{bid_id}               AI-generated bid drafts
+apps/vendy/bids/{bid_id}               AI-generated bid drafts  ← written by bid-generator service
 apps/vendy/jobs/{job_id}               takeoff extraction jobs
 apps/vendy/runs/{run_id}               AI agent audit log
 apps/shared/projects/{project_id}      construction projects
@@ -292,14 +310,19 @@ TypeScript: `name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''
 
 ## CI/CD
 
-Workflows live in `.github/workflows/`. The `takeoff-agent.yml` workflow:
+Workflows live in `.github/workflows/`. Both services follow the same pattern:
 
-- Triggers on push to `main` when `services/takeoff-agent/**` files change
-- Runs `ruff` lint + format check on PRs and main
-- On merge to main: builds Docker image, pushes to `us-central1-docker.pkg.dev/oakley-apps/oakley-apps/takeoff-agent`, deploys to Cloud Run
+- Triggers on push to `main` when files in the service directory change, plus `workflow_dispatch`
+- Runs `ruff` lint + format check on PRs and main pushes
+- On merge to main: builds Docker image, pushes to Artifact Registry, deploys to Cloud Run
 - Cloud Run config: 2Gi RAM, 2 CPU, 300s timeout, 0–5 instances, `--no-allow-unauthenticated`
-- All secrets (`ANTHROPIC_API_KEY`, `MODEL_VERSION`, `INTERNAL_SERVICE_SECRET`) are mounted from Secret Manager — no secrets in the YAML
+- All secrets (`ANTHROPIC_API_KEY`, `MODEL_VERSION`, `INTERNAL_SERVICE_SECRET`) are mounted from Secret Manager — never in the YAML
 - Auth uses Workload Identity Federation via `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT_EMAIL` GitHub secrets
+
+| Workflow | Service | Image |
+|----------|---------|-------|
+| `takeoff-agent.yml` | `takeoff-agent` | `us-central1-docker.pkg.dev/oakley-apps/oakley-apps/takeoff-agent` |
+| `bid-generator.yml` | `bid-generator` | `us-central1-docker.pkg.dev/oakley-apps/oakley-apps/bid-generator` |
 
 ---
 
@@ -376,10 +399,28 @@ INTERNAL_SERVICE_SECRET=oakley-internal-dev
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/buildertrend-pipeline-key.json
 ```
 
+### services/bid-generator/.env (local dev — gitignored)
+
+```
+FIREBASE_PROJECT_ID=buildertrend-pipeline
+GCS_BUCKET=oakley-documents
+GCS_PROJECT=buildertrend-pipeline
+PUBSUB_PROJECT=buildertrend-pipeline
+PUBSUB_TOPIC=takeoff-events
+ANTHROPIC_API_KEY=sk-ant-...
+MODEL_VERSION=claude-opus-4-6
+PROMPT_VERSION=v1
+PORT=8002
+ENVIRONMENT=development
+INTERNAL_SERVICE_SECRET=oakley-internal-dev
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/buildertrend-pipeline-key.json
+```
+
 ### apps/web/.env.local (local dev — gitignored)
 
 ```
 TAKEOFF_AGENT_URL=http://localhost:8001
+BID_GENERATOR_URL=http://localhost:8002
 INTERNAL_SERVICE_SECRET=oakley-internal-dev
 NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_FIREBASE_APP_ID=...

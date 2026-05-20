@@ -201,3 +201,66 @@ def update_bid_pdf_path(bid_id, gcs_path) -> None:
             "pdf_gcs_path": gcs_path,
         }
     )
+
+
+def get_vendors_for_cost_code(cost_code: str) -> list[dict]:
+    """
+    Return active vendors who have pricing data for cost_code.
+
+    Strategy:
+      1. Get vendor IDs from apps/shared/cost_codes/{cost_code}.vendors
+      2. Fetch each vendor document
+      3. Keep only active vendors who have data in price_book.categories
+         or pricing_profile.categories for this cost_code
+    """
+    db = get_db()
+
+    # Primary index: cost_code document lists vendor slugs
+    code_doc = (
+        db.collection("apps")
+        .document("shared")
+        .collection("cost_codes")
+        .document(cost_code)
+        .get()
+    )
+    vendor_ids: list[str] = []
+    if code_doc.exists:
+        vendor_ids = code_doc.to_dict().get("vendors", [])
+
+    # Fall back to scanning all active vendors if the cost_code doc has no list
+    if not vendor_ids:
+        docs = (
+            db.collection("apps")
+            .document("vendy")
+            .collection("vendors")
+            .where(filter=firestore.FieldFilter("active", "==", True))
+            .stream()
+        )
+        vendor_ids = [d.id for d in docs]
+
+    result = []
+    for vid in vendor_ids:
+        vendor = get_vendor(vid)
+        if not vendor:
+            continue
+        if not vendor.get("active", False):
+            continue
+        has_price_book = bool(
+            vendor.get("price_book", {}).get("categories", {}).get(cost_code)
+        )
+        has_profile = bool(
+            vendor.get("pricing_profile", {}).get("categories", {}).get(cost_code)
+        )
+        if has_price_book or has_profile:
+            result.append(vendor)
+
+    return result
+
+
+def log_run(run_dict: dict) -> None:
+    """Write an AI agent audit record to apps/vendy/runs/{run_id}."""
+    db = get_db()
+    run_id = run_dict.get("run_id", str(uuid.uuid4()))
+    db.collection("apps").document("vendy").collection("runs").document(run_id).set(
+        run_dict
+    )

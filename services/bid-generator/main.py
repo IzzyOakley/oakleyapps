@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,61 +13,31 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import firestore_client as fs
 import pdf_client as pdf
+from bid_builder import (
+    SECTION_TO_COST_CODES,
+    _resolve_cost_code,
+    process_approved_takeoff,
+)
 from generator import generate_bid
 from schemas import LineItemUpdate, GenerateBidsRequest
+
+logger = logging.getLogger(__name__)
 
 INTERNAL_SERVICE_SECRET = os.environ.get(
     "INTERNAL_SERVICE_SECRET", "oakley-internal-dev"
 )
 
-# ── Section ID → Cost Code mapping ───────────────────────────────────────────
-# Takeoff sections use section_id (e.g. "foundation_concrete") rather than a
-# numeric cost_code. This map bridges them so bids can be generated per section.
-# Multiple cost codes per section: we use the first one that has vendor coverage.
-SECTION_TO_COST_CODES: dict[str, list[str]] = {
-    "foundation_concrete": ["3100", "3000"],
-    "framing": ["3210", "3000"],
-    "roofing": ["3400"],
-    "windows_doors": ["3300", "3310"],
-    "electrical": ["3800", "3830"],
-    "plumbing": ["3600", "3610"],
-    "hvac": ["3700"],
-    "insulation": ["4700"],
-    "drywall_finishes": ["5000"],
-    "exterior_finishes": ["4600", "4100", "4110", "3500"],
-    "excavation": ["2000"],
-    "site_prep": ["2000", "1300"],
-    "landscaping": ["6200", "6310"],
-    "garage": ["4650"],
-    "flooring": ["5100", "5120", "5160", "5170"],
-    "interior_finishes": ["5200", "5400", "5211"],
-    "appliances": ["5900"],
-    "cabinets": ["5400", "5500"],
-    "stairs": ["3900"],
-    "miscellaneous": ["8200O", "8100O"],
-}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if os.environ.get("ENVIRONMENT") == "production":
+        import pubsub_subscriber
+        logger.info("Starting Pub/Sub subscriber thread")
+        pubsub_subscriber.start_subscriber(process_approved_takeoff)
+    yield
 
 
-def _resolve_cost_code(section: dict, biddable: dict) -> str | None:
-    """
-    Return the best cost_code for a section, checking:
-    1. Explicit cost_code field (future takeoffs generated per spec)
-    2. section_id mapping (current takeoffs from Claude extractor)
-    Returns the first code that exists in the biddable map, or None.
-    """
-    explicit = section.get("cost_code", "")
-    if explicit and explicit in biddable:
-        return explicit
-
-    section_id = section.get("section_id", "")
-    for code in SECTION_TO_COST_CODES.get(section_id, []):
-        if code in biddable:
-            return code
-
-    return None
-
-
-app = FastAPI(title="Bid Generator", version="0.1.0")
+app = FastAPI(title="Bid Generator", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://oakleyapps.com", "http://localhost:3000"],
@@ -102,6 +74,18 @@ async def require_pm(user: dict = Depends(get_current_user)) -> dict:
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+@app.post("/process/{project_id}", status_code=202)
+async def trigger_bid_generation(
+    project_id: str, user: dict = Depends(require_pm)
+):
+    """
+    Manual trigger for bid generation — same logic as the Pub/Sub path.
+    Useful for re-processing or testing without sending a Pub/Sub message.
+    """
+    asyncio.create_task(process_approved_takeoff(project_id))
+    return {"project_id": project_id, "status": "processing"}
 
 
 @app.get("/cost-codes")

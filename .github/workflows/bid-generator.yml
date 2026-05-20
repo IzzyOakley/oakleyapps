@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'services/bid-generator/**'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -88,9 +89,9 @@ jobs:
             --platform managed \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT }} \
-            --allow-unauthenticated \
-            --memory 1Gi \
-            --cpu 1 \
+            --no-allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
             --concurrency 10 \
             --min-instances 0 \
             --max-instances 5 \
@@ -100,10 +101,11 @@ jobs:
             --set-env-vars "GCS_BUCKET=oakley-documents" \
             --set-env-vars "GCS_PROJECT=buildertrend-pipeline" \
             --set-env-vars "PUBSUB_PROJECT=buildertrend-pipeline" \
+            --set-env-vars "PUBSUB_TOPIC=takeoff-events" \
             --set-env-vars "ENVIRONMENT=production" \
-            --set-env-vars "MODEL_VERSION=claude-opus-4-6" \
             --set-env-vars "PROMPT_VERSION=v1" \
             --set-secrets "ANTHROPIC_API_KEY=anthropic-api-key:latest" \
+            --set-secrets "MODEL_VERSION=MODEL_VERSION:latest" \
             --set-secrets "INTERNAL_SERVICE_SECRET=INTERNAL_SERVICE_SECRET:latest"
 
       - name: Print service URL
