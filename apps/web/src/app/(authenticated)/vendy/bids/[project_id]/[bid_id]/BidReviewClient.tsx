@@ -15,6 +15,9 @@ interface Props { projectId: string; bidId: string }
 function initials(name: string) {
   return name.split(/[\s_]+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('')
 }
+function vendorLabel(name: string) {
+  return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
 function fmt(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -177,7 +180,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
           {bid.project_name}
         </button>
         <ChevronRight size={11} className="text-text-muted" />
-        <span className="text-text-muted">{bid.vendor_name.replace(/_/g, ' ')} — {bid.cost_code_name}</span>
+        <span className="text-text-muted">{vendorLabel(bid.vendor_name)} — {bid.cost_code_name}</span>
       </nav>
 
       {/* Vendor header card */}
@@ -189,7 +192,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
             </div>
             <div>
               <h1 className="text-[17px] font-semibold text-text-primary leading-tight">
-                {bid.vendor_name.replace(/_/g, ' ')}
+                {vendorLabel(bid.vendor_name)}
               </h1>
               <p className="text-[11px] text-text-muted mt-0.5">
                 {bid.cost_code_name} · {bid.cost_code}
@@ -260,35 +263,11 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
 
       {/* AI review card */}
       {hasFlags && (
-        <div className="bg-surface border border-primary/20 rounded-[14px] px-5 py-4 mb-4" style={{ background: '#FDFCFF' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded bg-primary-light flex items-center justify-center">
-                <Sparkles size={12} className="text-primary" />
-              </div>
-              <span className="text-[12px] font-semibold text-text-primary">
-                AI review
-                {unreviewedCount > 0 && (
-                  <span className="ml-1.5 text-warning">· {unreviewedCount} item{unreviewedCount !== 1 ? 's' : ''} need review</span>
-                )}
-              </span>
-            </div>
-            <button
-              onClick={() => setFlagsDismissed(true)}
-              className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
-            >
-              Dismiss
-            </button>
-          </div>
-          <div className="space-y-2">
-            {flagText.split('\n').filter(Boolean).map((line, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-warning mt-1.5 shrink-0" />
-                <p className="text-[11px] text-text-secondary leading-relaxed">{line}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <AIReviewCard
+          notes={flagText}
+          unreviewedCount={unreviewedCount}
+          onDismiss={() => setFlagsDismissed(true)}
+        />
       )}
 
       {/* Line items table */}
@@ -401,6 +380,55 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
           </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── AI review card ────────────────────────────────────────────────────────────
+
+function AIReviewCard({ notes, unreviewedCount, onDismiss }: {
+  notes: string
+  unreviewedCount: number
+  onDismiss: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const PREVIEW_CHARS = 240
+
+  const isLong = notes.length > PREVIEW_CHARS
+  const displayText = isLong && !expanded ? notes.slice(0, PREVIEW_CHARS).trimEnd() + '…' : notes
+
+  return (
+    <div className="border border-primary/15 rounded-[14px] px-5 py-4 mb-4" style={{ background: '#FDFCFF' }}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-primary-light flex items-center justify-center shrink-0">
+            <Sparkles size={11} className="text-primary" />
+          </div>
+          <div>
+            <span className="text-[12px] font-semibold text-text-primary">AI Review</span>
+            {unreviewedCount > 0 && (
+              <span className="ml-2 text-[11px] font-medium text-warning">
+                · {unreviewedCount} item{unreviewedCount !== 1 ? 's' : ''} flagged for review
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-[11px] text-text-muted hover:text-text-secondary transition-colors shrink-0 mt-0.5"
+        >
+          Dismiss
+        </button>
+      </div>
+      <p className="text-[11.5px] text-text-secondary leading-relaxed">{displayText}</p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-2 text-[11px] font-medium text-primary hover:text-primary/70 transition-colors"
+        >
+          {expanded ? 'Show less' : 'Read full review'}
+        </button>
+      )}
     </div>
   )
 }

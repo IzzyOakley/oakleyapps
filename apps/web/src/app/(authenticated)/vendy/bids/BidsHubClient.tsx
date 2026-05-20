@@ -79,23 +79,36 @@ export default function BidsHubClient() {
   // Ready-to-bid: approved takeoff, no bids yet
   const readyProjects = approvedProjects.filter(p => !bidsMap.has(p.project_id)).slice(0, 6)
 
+  // Summary stats
+  const totalBidValue = Array.from(bidsMap.values()).flat().reduce((s, b) => s + (b.subtotal ?? 0), 0)
+  const totalNeedsReview = Array.from(bidsMap.values()).flat().filter(b => b.status === 'needs_review').length
+
   return (
     <div className="animate-in fade-in max-w-3xl">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-text-primary tracking-tight">Bid Generator</h1>
-        <p className="text-sm text-text-muted mt-1">
-          Generate reverse bids for every vendor, review, approve, and download.
+      <div className="mb-7">
+        <h1 className="text-[18px] font-semibold text-text-primary tracking-tight">Bid Generator</h1>
+        <p className="text-[13px] text-text-secondary mt-1">
+          Generate, review, approve, and download bids for every vendor across all projects.
         </p>
       </div>
 
+      {/* Summary stats */}
+      {!loading && bidsMap.size > 0 && (
+        <div className="grid grid-cols-3 gap-3 mb-7">
+          <StatCard label="Active projects" value={String(bidProjects.length + readyProjects.length)} />
+          <StatCard label="Pending review" value={String(totalNeedsReview)} accent={totalNeedsReview > 0 ? 'text-warning' : undefined} />
+          <StatCard label="Total bid value" value={`$${(totalBidValue / 1000).toFixed(0)}k`} accent="text-primary" />
+        </div>
+      )}
+
       {serviceOffline && (
-        <div className="flex items-start gap-3 px-4 py-3 mb-6 bg-warning/10 border border-warning/20 rounded-xl">
-          <AlertTriangle size={15} className="text-warning mt-0.5 shrink-0" />
+        <div className="flex items-start gap-3 px-4 py-3 mb-6 bg-warning-bg border border-warning/20 rounded-xl">
+          <AlertTriangle size={14} className="text-warning mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-medium text-text-primary">Bid generator offline</p>
-            <p className="text-xs text-text-muted mt-0.5">
-              Run <code className="font-mono bg-surface px-1 py-0.5 rounded text-xs">bash start-dev.sh</code> from{' '}
-              <code className="font-mono bg-surface px-1 py-0.5 rounded text-xs">services/bid-generator</code>
+            <p className="text-[12px] font-medium text-text-primary">Bid generator offline</p>
+            <p className="text-[11px] text-text-secondary mt-0.5">
+              Run <code className="font-mono bg-surface px-1 py-0.5 rounded text-[10px]">bash start-dev.sh</code> in{' '}
+              <code className="font-mono bg-surface px-1 py-0.5 rounded text-[10px]">services/bid-generator</code>
             </p>
           </div>
         </div>
@@ -103,7 +116,7 @@ export default function BidsHubClient() {
 
       {/* Project search combobox */}
       <div className="mb-10" ref={dropdownRef}>
-        <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-2">Select a project</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary mb-2">Select a project</p>
         <div className="relative">
           <div
             className={`flex items-center gap-3 h-12 px-4 bg-surface border rounded-xl cursor-text transition-colors ${
@@ -211,8 +224,8 @@ export default function BidsHubClient() {
 
           {readyProjects.length > 0 && (
             <section>
-              <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-3">
-                Ready to bid — approved takeoffs
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
+                Ready to bid
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {readyProjects.map(p => (
@@ -265,7 +278,7 @@ function ProjectSection({
 }) {
   return (
     <section>
-      <p className="text-xs font-medium uppercase tracking-widest text-text-muted mb-3">{title}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary mb-3">{title}</p>
       <div className="space-y-2">
         {projects.map(p => {
           const bids = bidsMap.get(p.project_id) ?? []
@@ -277,14 +290,14 @@ function ProjectSection({
             <button
               key={p.project_id}
               onClick={() => onSelect(p)}
-              className="w-full flex items-center gap-4 px-5 py-4 bg-surface border border-border rounded-2xl hover:border-border-bright hover:bg-surface-raised transition-all duration-150 text-left group"
+              className="w-full flex items-center gap-4 px-5 py-4 bg-surface border border-border rounded-[14px] hover:border-border-bright hover:bg-surface-raised transition-all duration-150 text-left group"
             >
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accentClass}`}>
                 {icon}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text-primary truncate">{p.job_name}</p>
-                <p className="text-xs text-text-muted mt-0.5 truncate">
+                <p className="text-[13px] font-semibold text-text-primary truncate">{p.job_name}</p>
+                <p className="text-[11px] text-text-secondary mt-0.5 truncate">
                   {needsReviewCount > 0
                     ? `${needsReviewCount} bid${needsReviewCount !== 1 ? 's' : ''} need review`
                     : `${bids.length} bid${bids.length !== 1 ? 's' : ''} · ${approvedCount} actioned`}
@@ -292,15 +305,24 @@ function ProjectSection({
               </div>
               {total > 0 && (
                 <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0">
-                  <p className="text-xs font-semibold text-text-primary tabular-nums">${fmt(total)}</p>
-                  <p className="text-xs text-text-muted">{bids.length} vendor{bids.length !== 1 ? 's' : ''}</p>
+                  <p className="text-[12px] font-semibold text-text-primary tabular-nums font-mono">${fmt(total)}</p>
+                  <p className="text-[10px] text-text-secondary">{bids.length} vendor{bids.length !== 1 ? 's' : ''}</p>
                 </div>
               )}
-              <ChevronRight size={16} className="text-text-muted group-hover:text-text-secondary transition-colors shrink-0" />
+              <ChevronRight size={15} className="text-text-muted group-hover:text-text-secondary transition-colors shrink-0" />
             </button>
           )
         })}
       </div>
     </section>
+  )
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="bg-surface border border-border rounded-[14px] px-4 py-3.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary mb-1">{label}</p>
+      <p className={`text-[17px] font-semibold tabular-nums ${accent ?? 'text-text-primary'}`}>{value}</p>
+    </div>
   )
 }

@@ -30,7 +30,7 @@ const config: Config = {
         secondary:       '#A78BFA', // Alias for gradient use
 
         // ── Sidebar nav text ─────────────────────────────────────────────────
-        'nav-inactive':  '#665F80',
+        'nav-inactive':  '#8B83A8',
         'nav-active':    '#C4B5FD',
 
         // ── Text ─────────────────────────────────────────────────────────────

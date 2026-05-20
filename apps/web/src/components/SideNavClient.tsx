@@ -68,7 +68,7 @@ export default function SideNavClient({ user }: Props) {
       <div className="px-4 py-5 border-b border-white/5">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shrink-0">
-            <span className="text-white text-[10px] font-bold">O</span>
+            <span className="text-white text-[11px] font-bold">V</span>
           </div>
           <div>
             <span className="text-[13px] font-semibold text-white">Oakley</span>
