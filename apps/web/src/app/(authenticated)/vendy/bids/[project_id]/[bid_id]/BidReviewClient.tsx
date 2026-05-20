@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronLeft, Loader2, CheckCircle, Download, Edit2, AlertTriangle,
-  X, Check, ChevronDown, ChevronUp,
+  ChevronLeft, ChevronRight, Loader2, CheckCircle, Download,
+  Edit2, AlertTriangle, X, Check, Sparkles,
 } from 'lucide-react'
 import { getBidDetail, updateBidLineItem, approveBidDocument } from '@/lib/vendy/api'
 import { downloadBidPdf } from '@/lib/vendy/bids-api'
@@ -12,9 +12,59 @@ import type { BidDocument, BidLineItem, BidLineItemSource } from '@/lib/vendy/ty
 
 interface Props { projectId: string; bidId: string }
 
-function isGeneratedSource(source: BidLineItemSource): boolean {
-  return source === 'generated' || source === 'estimated'
+function initials(name: string) {
+  return name.split(/[\s_]+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('')
 }
+function fmt(n: number) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+function isEstimated(s: BidLineItemSource) {
+  return s === 'generated' || s === 'estimated'
+}
+
+// ── Source badge ──────────────────────────────────────────────────────────────
+
+function SourceBadge({ source }: { source: BidLineItemSource }) {
+  if (source === 'history') {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary-light text-primary">
+        Takeoff
+      </span>
+    )
+  }
+  if (source === 'legacy') {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-raised text-text-muted border border-border">
+        Legacy
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning-bg text-warning">
+      Estimated
+    </span>
+  )
+}
+
+// ── Status inline text ────────────────────────────────────────────────────────
+
+function StatusText({ status }: { status: BidDocument['status'] }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    generating:   { label: 'Generating…', cls: 'text-primary' },
+    needs_review: { label: 'In review',   cls: 'text-warning' },
+    approved:     { label: 'Approved',    cls: 'text-success' },
+    sent:         { label: 'Sent',        cls: 'text-info' },
+    confirmed:    { label: 'Confirmed',   cls: 'text-info' },
+    revised:      { label: 'Revised',     cls: 'text-info' },
+    awarded:      { label: 'Awarded',     cls: 'text-success' },
+    not_awarded:  { label: 'Not awarded', cls: 'text-text-muted' },
+    failed:       { label: 'Failed',      cls: 'text-danger' },
+  }
+  const s = map[status] ?? { label: status, cls: 'text-text-muted' }
+  return <span className={`text-[13px] font-semibold ${s.cls}`}>{s.label}</span>
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function BidReviewClient({ projectId, bidId }: Props) {
   const router = useRouter()
@@ -25,7 +75,7 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [reviewedIdxs, setReviewedIdxs] = useState<Set<number>>(new Set())
-  const [notesOpen, setNotesOpen] = useState(false)
+  const [flagsDismissed, setFlagsDismissed] = useState(false)
 
   const loadBid = useCallback(async () => {
     try {
@@ -40,19 +90,20 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
 
   useEffect(() => { loadBid() }, [loadBid])
 
-  // Derive which generated items need reviewing
-  const generatedIdxs: number[] = bid
+  const estimatedIdxs = bid
     ? bid.line_items.reduce<number[]>((acc, item, i) => {
-        if (isGeneratedSource(item.source)) acc.push(i)
+        if (isEstimated(item.source)) acc.push(i)
         return acc
       }, [])
     : []
-  const allGeneratedReviewed = generatedIdxs.every(i => reviewedIdxs.has(i))
-  const unreviewed = generatedIdxs.filter(i => !reviewedIdxs.has(i)).length
+  const allReviewed = estimatedIdxs.every(i => reviewedIdxs.has(i))
+  const unreviewedCount = estimatedIdxs.filter(i => !reviewedIdxs.has(i)).length
+
+  const historyCount = bid ? bid.line_items.filter(i => i.source === 'history').length : 0
 
   function openEdit(idx: number) {
     setEditingIdx(idx)
-    if (bid && isGeneratedSource(bid.line_items[idx].source)) {
+    if (bid && isEstimated(bid.line_items[idx].source)) {
       setReviewedIdxs(prev => new Set(prev).add(idx))
     }
   }
@@ -78,15 +129,15 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
         .replace(/\s+/g, '_').toLowerCase()
       await downloadBidPdf(bidId, filename)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to download PDF')
+      setError(e instanceof Error ? e.message : 'Download failed')
     } finally {
       setDownloading(false)
     }
   }
 
-  function handleLineItemSaved(idx: number, updatedItem: BidLineItem) {
+  function handleLineItemSaved(idx: number, updated: BidLineItem) {
     if (!bid) return
-    const items = bid.line_items.map((item, i) => i === idx ? updatedItem : item)
+    const items = bid.line_items.map((item, i) => i === idx ? updated : item)
     const subtotal = items.reduce((sum, item) => sum + (item.total ?? 0), 0)
     setBid({ ...bid, line_items: items, subtotal })
     setEditingIdx(null)
@@ -95,119 +146,169 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 size={24} className="animate-spin text-text-muted" />
+        <Loader2 size={20} className="animate-spin text-text-muted" />
       </div>
     )
   }
 
   if (!bid) {
-    return <div className="text-error text-sm mt-8">{error ?? 'Bid not found.'}</div>
+    return <div className="text-danger text-sm mt-8">{error ?? 'Bid not found.'}</div>
   }
 
-  const canApprove = bid.status === 'needs_review' && allGeneratedReviewed
+  const canApprove = bid.status === 'needs_review' && allReviewed
+  const flagText = bid.generation_notes
+  const hasFlags = !!flagText && !flagsDismissed
 
   return (
-    <div className="animate-in fade-in pb-16">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
-        <div>
-          <button
-            onClick={() => router.push(`/vendy/bids/${projectId}`)}
-            className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary transition-colors mb-3"
-          >
-            <ChevronLeft size={16} />
-            {bid.project_name}
-          </button>
-          <h1 className="text-2xl font-semibold text-text-primary tracking-tight">{bid.vendor_name}</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            {bid.cost_code} — {bid.cost_code_name} · {bid.project_name}
-          </p>
-          {bid.generated_at && (
-            <p className="text-xs text-text-muted mt-0.5">
-              Generated {new Date(bid.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
-          )}
+    <div className="animate-in fade-in pb-16 max-w-5xl">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-1 text-[11px] mb-5">
+        <button
+          onClick={() => router.push('/vendy/bids')}
+          className="text-primary hover:text-primary/70 transition-colors"
+        >
+          Bids
+        </button>
+        <ChevronRight size={11} className="text-text-muted" />
+        <button
+          onClick={() => router.push(`/vendy/bids/${projectId}`)}
+          className="text-primary hover:text-primary/70 transition-colors"
+        >
+          {bid.project_name}
+        </button>
+        <ChevronRight size={11} className="text-text-muted" />
+        <span className="text-text-muted">{bid.vendor_name.replace(/_/g, ' ')} — {bid.cost_code_name}</span>
+      </nav>
+
+      {/* Vendor header card */}
+      <div className="bg-surface border border-border rounded-[14px] px-6 py-5 mb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-primary-light flex items-center justify-center shrink-0">
+              <span className="text-[13px] font-bold text-primary">{initials(bid.vendor_name)}</span>
+            </div>
+            <div>
+              <h1 className="text-[17px] font-semibold text-text-primary leading-tight">
+                {bid.vendor_name.replace(/_/g, ' ')}
+              </h1>
+              <p className="text-[11px] text-text-muted mt-0.5">
+                {bid.cost_code_name} · {bid.cost_code}
+                {bid.generated_at && (
+                  <> · Submitted {new Date(bid.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="h-8 w-8 flex items-center justify-center border border-border text-text-muted rounded-md hover:border-border-bright hover:text-text-secondary transition-colors disabled:opacity-50"
+              title="Download PDF"
+            >
+              {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            </button>
+            <button
+              onClick={handleApprove}
+              disabled={!canApprove || approving}
+              title={
+                bid.status !== 'needs_review'
+                  ? undefined
+                  : !allReviewed
+                  ? `Review ${unreviewedCount} estimated item${unreviewedCount !== 1 ? 's' : ''} first`
+                  : undefined
+              }
+              className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {approving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+              Approve bid
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <BidStatusBadge status={bid.status} />
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="inline-flex items-center gap-2 h-10 px-4 text-sm font-medium border border-border text-text-secondary rounded-lg hover:border-border-bright transition-colors disabled:opacity-50"
-          >
-            {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-            PDF
-          </button>
-          <button
-            onClick={handleApprove}
-            disabled={!canApprove || approving}
-            title={
-              bid.status !== 'needs_review'
-                ? 'Bid is not in needs_review status'
-                : !allGeneratedReviewed
-                ? `Review ${unreviewed} estimated item${unreviewed !== 1 ? 's' : ''} before approving`
-                : undefined
-            }
-            className="inline-flex items-center gap-2 h-10 px-5 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary-hover active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {approving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-            Approve
-          </button>
+
+        {/* 4-column meta strip */}
+        <div className="grid grid-cols-4 gap-4 mt-5 pt-4 border-t border-border-light">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Total bid</p>
+            <p className="text-[13px] font-semibold text-primary tabular-nums">
+              {bid.subtotal != null ? `$${fmt(bid.subtotal)}` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Status</p>
+            <StatusText status={bid.status} />
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">Line items</p>
+            <p className="text-[13px] font-semibold text-text-primary">{bid.line_items.length}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted mb-0.5">History matched</p>
+            <p className="text-[13px] font-semibold text-success">
+              {historyCount} / {bid.line_items.length} matched
+            </p>
+          </div>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-error/10 border border-error/20 rounded-xl mb-4 text-sm text-error">
-          <AlertTriangle size={15} />
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-danger-bg border border-danger/20 rounded-lg mb-4 text-xs text-danger">
+          <AlertTriangle size={12} />
           {error}
         </div>
       )}
 
-      {/* Unreviewed generated items warning */}
-      {bid.status === 'needs_review' && generatedIdxs.length > 0 && !allGeneratedReviewed && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-warning/10 border border-warning/20 rounded-xl mb-4 text-sm text-warning">
-          <AlertTriangle size={15} className="shrink-0" />
-          <span>
-            {unreviewed} estimated line item{unreviewed !== 1 ? 's' : ''} need{unreviewed === 1 ? 's' : ''} review before you can approve.
-            Click the edit icon on amber rows to confirm or adjust them.
-          </span>
-        </div>
-      )}
-
-      {/* Collapsible generation notes */}
-      {bid.generation_notes && (
-        <div className="bg-surface border border-border rounded-xl mb-4 overflow-hidden">
-          <button
-            onClick={() => setNotesOpen(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-surface-raised transition-colors"
-          >
-            <span className="font-medium text-text-secondary">AI generation notes</span>
-            {notesOpen
-              ? <ChevronUp size={14} className="text-text-muted" />
-              : <ChevronDown size={14} className="text-text-muted" />}
-          </button>
-          {notesOpen && (
-            <div className="px-4 pb-4 text-sm text-text-muted leading-relaxed border-t border-border pt-3">
-              {bid.generation_notes}
+      {/* AI review card */}
+      {hasFlags && (
+        <div className="bg-surface border border-primary/20 rounded-[14px] px-5 py-4 mb-4" style={{ background: '#FDFCFF' }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded bg-primary-light flex items-center justify-center">
+                <Sparkles size={12} className="text-primary" />
+              </div>
+              <span className="text-[12px] font-semibold text-text-primary">
+                AI review
+                {unreviewedCount > 0 && (
+                  <span className="ml-1.5 text-warning">· {unreviewedCount} item{unreviewedCount !== 1 ? 's' : ''} need review</span>
+                )}
+              </span>
             </div>
-          )}
+            <button
+              onClick={() => setFlagsDismissed(true)}
+              className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="space-y-2">
+            {flagText.split('\n').filter(Boolean).map((line, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-warning mt-1.5 shrink-0" />
+                <p className="text-[11px] text-text-secondary leading-relaxed">{line}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Line items table */}
-      <div className="bg-surface border border-border rounded-2xl overflow-hidden">
+      <div className="bg-surface border border-border rounded-[14px] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border-light">
+          <p className="text-[12px] font-semibold text-text-primary">
+            Line items <span className="text-text-muted font-normal">{bid.line_items.length} items</span>
+          </p>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
-              <tr className="border-b border-border bg-surface-raised">
-                <th className="text-left px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Description</th>
-                <th className="text-right px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted w-20">Qty</th>
-                <th className="text-left px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted w-16">Unit</th>
-                <th className="text-right px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted w-24">Unit $</th>
-                <th className="text-right px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted w-24">Total</th>
-                <th className="text-left px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted w-24">Source</th>
-                <th className="text-left px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Notes</th>
-                <th className="px-3 py-3 w-12" />
+              <tr className="border-b border-border-light bg-surface-raised">
+                <th className="text-left px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted">Description</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted w-16">Qty</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted w-14">Unit</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted w-24">Unit Price</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted w-24">Total</th>
+                <th className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-text-muted w-20">Source</th>
+                <th className="px-3 py-2.5 w-8" />
               </tr>
             </thead>
             <tbody>
@@ -224,65 +325,87 @@ export default function BidReviewClient({ projectId, bidId }: Props) {
                 ) : (
                   <tr
                     key={idx}
-                    className={`border-t border-border transition-colors ${
-                      isGeneratedSource(item.source) && !reviewedIdxs.has(idx)
-                        ? 'bg-warning/5 hover:bg-warning/10'
+                    className={`border-t border-border-light transition-colors ${
+                      isEstimated(item.source) && !reviewedIdxs.has(idx)
+                        ? 'bg-warning-bg/40 hover:bg-warning-bg/70'
                         : 'hover:bg-surface-raised/50'
                     }`}
                   >
-                    <td className="px-6 py-3 text-text-primary">{item.description}</td>
-                    <td className="px-3 py-3 text-right tabular-nums font-mono text-sm text-text-primary">
-                      {item.quantity != null ? item.quantity.toLocaleString() : '—'}
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11.5px] text-text-primary">{item.description}</span>
+                        {isEstimated(item.source) && !reviewedIdxs.has(idx) && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-warning-bg text-warning border border-warning/20">
+                            AI flag
+                          </span>
+                        )}
+                      </div>
+                      {item.notes && (
+                        <p className="text-[10px] text-text-muted mt-0.5 leading-relaxed line-clamp-2">{item.notes}</p>
+                      )}
                     </td>
-                    <td className="px-3 py-3 text-text-secondary">{item.unit}</td>
-                    <td className="px-3 py-3 text-right tabular-nums font-mono text-sm text-text-primary">
-                      {item.unit_price != null
-                        ? `$${item.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '—'}
+                    <td className="px-3 py-3 text-right">
+                      <span className="text-[11.5px] font-mono text-text-primary tabular-nums">
+                        {item.quantity != null ? item.quantity.toLocaleString() : '—'}
+                      </span>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums font-mono text-sm text-text-primary">
-                      {item.total != null
-                        ? `$${item.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : '—'}
+                    <td className="px-3 py-3">
+                      <span className="text-[11.5px] text-text-secondary">{item.unit}</span>
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <span className="text-[11.5px] font-mono text-text-primary tabular-nums">
+                        {item.unit_price != null ? `$${fmt(item.unit_price)}` : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <span className={`text-[11.5px] font-mono tabular-nums font-medium ${isEstimated(item.source) ? 'text-warning' : 'text-text-primary'}`}>
+                        {item.total != null ? `$${fmt(item.total)}` : '—'}
+                      </span>
                     </td>
                     <td className="px-3 py-3">
                       <SourceBadge source={item.source} />
-                    </td>
-                    <td className="px-3 py-3 text-xs text-text-muted max-w-xs truncate" title={item.notes ?? ''}>
-                      {item.notes ?? ''}
                     </td>
                     <td className="px-3 py-3">
                       {bid.status !== 'approved' && (
                         <button
                           onClick={() => openEdit(idx)}
-                          className="p-1.5 text-text-muted hover:text-text-primary rounded-lg hover:bg-surface-raised transition-colors"
-                          title="Edit line item"
+                          className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-raised transition-colors"
+                          title="Edit"
                         >
-                          <Edit2 size={13} />
+                          <Edit2 size={11} />
                         </button>
                       )}
                     </td>
                   </tr>
                 )
               ))}
-              <tr className="border-t border-border bg-surface-raised/50">
-                <td colSpan={4} className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-muted">
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border bg-surface-raised">
+                <td colSpan={4} className="px-5 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-text-muted">
                   Subtotal
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums font-mono font-semibold text-text-primary">
-                  {bid.subtotal != null
-                    ? `$${bid.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : '—'}
+                <td className="px-3 py-3 text-right">
+                  <span className="text-[13px] font-mono font-semibold text-text-primary tabular-nums">
+                    {bid.subtotal != null ? `$${fmt(bid.subtotal)}` : '—'}
+                  </span>
                 </td>
-                <td colSpan={3} />
+                <td />
+                <td className="px-3 py-3 text-right">
+                  <span className="text-[10px] font-semibold text-primary tabular-nums">
+                    {bid.subtotal != null ? `Bid total $${fmt(bid.subtotal)}` : ''}
+                  </span>
+                </td>
               </tr>
-            </tbody>
+            </tfoot>
           </table>
         </div>
       </div>
     </div>
   )
 }
+
+// ── Inline edit row ───────────────────────────────────────────────────────────
 
 function EditRow({ item, idx, bidId, onSaved, onCancel }: {
   item: BidLineItem
@@ -316,94 +439,55 @@ function EditRow({ item, idx, bidId, onSaved, onCancel }: {
   }
 
   return (
-    <tr className="border-t border-border bg-primary/5">
-      <td className="px-6 py-3 text-text-primary text-sm">{item.description}</td>
-      <td className="px-3 py-3">
+    <tr className="border-t border-border-light bg-primary-light/30">
+      <td className="px-5 py-2.5">
+        <span className="text-[11.5px] text-text-primary">{item.description}</span>
+        {error && <p className="text-[10px] text-danger mt-0.5">{error}</p>}
+      </td>
+      <td className="px-3 py-2.5">
         <input
           type="number"
           value={quantity}
           onChange={e => setQuantity(e.target.value)}
-          className="w-20 bg-surface border border-border text-text-primary text-sm rounded-lg px-2 h-8 text-right tabular-nums focus:outline-none focus:border-primary transition-colors"
+          className="w-16 bg-surface border border-border text-text-primary text-[11px] rounded px-1.5 h-7 text-right tabular-nums focus:outline-none focus:border-primary transition-colors"
         />
       </td>
-      <td className="px-3 py-3 text-text-secondary text-sm">{item.unit}</td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-2.5 text-[11.5px] text-text-muted">{item.unit}</td>
+      <td className="px-3 py-2.5">
         <input
           type="number"
           value={unitPrice}
           onChange={e => setUnitPrice(e.target.value)}
-          className="w-24 bg-surface border border-border text-text-primary text-sm rounded-lg px-2 h-8 text-right tabular-nums focus:outline-none focus:border-primary transition-colors"
+          className="w-20 bg-surface border border-border text-text-primary text-[11px] rounded px-1.5 h-7 text-right tabular-nums focus:outline-none focus:border-primary transition-colors"
         />
       </td>
-      <td className="px-3 py-3 text-right tabular-nums font-mono text-sm text-text-muted">
-        {quantity !== '' && unitPrice !== ''
-          ? `$${(parseFloat(quantity) * parseFloat(unitPrice)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          : '—'}
+      <td className="px-3 py-2.5 text-right">
+        <span className="text-[11.5px] font-mono tabular-nums text-text-muted">
+          {quantity !== '' && unitPrice !== ''
+            ? `$${(parseFloat(quantity) * parseFloat(unitPrice)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : '—'}
+        </span>
       </td>
-      <td className="px-3 py-3"><SourceBadge source={item.source} /></td>
-      <td className="px-3 py-3 text-xs text-error">{error}</td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-2.5"><SourceBadge source={item.source} /></td>
+      <td className="px-3 py-2.5">
         <div className="flex items-center gap-1">
           <button
             onClick={handleSave}
             disabled={saving}
-            className="p-1.5 text-success hover:bg-success/10 rounded-lg transition-colors disabled:opacity-50"
+            className="p-1 text-success hover:bg-success-bg rounded transition-colors disabled:opacity-50"
             title="Save"
           >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
           </button>
           <button
             onClick={onCancel}
-            className="p-1.5 text-text-muted hover:text-text-primary rounded-lg hover:bg-surface-raised transition-colors"
+            className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-raised transition-colors"
             title="Cancel"
           >
-            <X size={13} />
+            <X size={11} />
           </button>
         </div>
       </td>
     </tr>
-  )
-}
-
-function BidStatusBadge({ status }: { status: BidDocument['status'] }) {
-  const map: Record<string, { label: string; cls: string; icon?: React.ReactNode }> = {
-    generating:   { label: 'Generating…', cls: 'bg-primary/15 text-primary animate-pulse', icon: <Loader2 size={11} className="animate-spin" /> },
-    needs_review: { label: 'Needs Review', cls: 'bg-warning/15 text-warning' },
-    approved:     { label: 'Approved', cls: 'bg-success/15 text-success', icon: <CheckCircle size={11} /> },
-    sent:         { label: 'Sent', cls: 'bg-sky-500/15 text-sky-400' },
-    confirmed:    { label: 'Confirmed', cls: 'bg-sky-500/15 text-sky-400' },
-    revised:      { label: 'Revised', cls: 'bg-sky-500/15 text-sky-400' },
-    awarded:      { label: 'Awarded', cls: 'bg-success/15 text-success', icon: <CheckCircle size={11} /> },
-    not_awarded:  { label: 'Not Awarded', cls: 'bg-slate-500/15 text-slate-400' },
-    failed:       { label: 'Failed', cls: 'bg-error/15 text-error', icon: <AlertTriangle size={11} /> },
-  }
-  const entry = map[status] ?? { label: status, cls: 'bg-surface-raised text-text-muted' }
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${entry.cls}`}>
-      {entry.icon}
-      {entry.label}
-    </span>
-  )
-}
-
-function SourceBadge({ source }: { source: BidLineItemSource }) {
-  if (source === 'history') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
-        History
-      </span>
-    )
-  }
-  if (source === 'legacy') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400">
-        Legacy
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
-      Estimated
-    </span>
   )
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Loader2, Download, CheckCircle, AlertTriangle,
-  X, Users, ArrowRight, ChevronRight, FileText,
+  X, ArrowRight, FileText, Sparkles, Plus,
 } from 'lucide-react'
 import {
   getProjectBids, getProjectBidSetup, generateBids, approveBid, downloadBidPdf,
@@ -13,10 +13,37 @@ import type { Bid, BidSetup, BidSetupCostCode } from '@/lib/vendy/bids-api'
 
 interface Props { projectId: string }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
 function fmt(n: number) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+function fmtDecimal(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+function initials(name: string) {
+  return name.split(/[\s_]+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('')
+}
+
+// ── Status dot ────────────────────────────────────────────────────────────────
+
+function StatusDot({ status }: { status: Bid['status'] }) {
+  const map: Record<string, { dot: string; label: string; text: string }> = {
+    generating:   { dot: 'bg-primary animate-pulse', label: 'Generating…', text: 'text-primary' },
+    needs_review: { dot: 'bg-warning',                label: 'In review',   text: 'text-warning' },
+    approved:     { dot: 'bg-success',                label: 'Approved',    text: 'text-success' },
+    sent:         { dot: 'bg-info',                   label: 'Sent',        text: 'text-info' },
+    confirmed:    { dot: 'bg-info',                   label: 'Confirmed',   text: 'text-info' },
+    revised:      { dot: 'bg-info',                   label: 'Revised',     text: 'text-info' },
+    awarded:      { dot: 'bg-success',                label: 'Awarded',     text: 'text-success' },
+    not_awarded:  { dot: 'bg-text-muted',             label: 'Not awarded', text: 'text-text-muted' },
+    failed:       { dot: 'bg-danger',                 label: 'Failed',      text: 'text-danger' },
+  }
+  const s = map[status] ?? { dot: 'bg-text-muted', label: status, text: 'text-text-muted' }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`} />
+      <span className={`text-[11px] font-medium ${s.text}`}>{s.label}</span>
+    </span>
+  )
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -30,28 +57,19 @@ export default function ProjectBidsClient({ projectId }: Props) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadBids = useCallback(async () => {
-    try {
-      const data = await getProjectBids(projectId)
-      setBids(data)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load bids')
-    }
+    try { setBids(await getProjectBids(projectId)) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Failed to load bids') }
   }, [projectId])
 
   useEffect(() => {
     async function init() {
       await loadBids()
-      // Always fetch setup so we know the project name + cost codes
-      try {
-        const s = await getProjectBidSetup(projectId)
-        setSetup(s)
-      } catch { /* service offline or no takeoff — handle gracefully */ }
+      try { setSetup(await getProjectBidSetup(projectId)) } catch { /* no takeoff */ }
       setLoading(false)
     }
     init()
   }, [projectId, loadBids])
 
-  // Poll every 3 s while any bid is generating
   useEffect(() => {
     const hasGenerating = bids.some(b => b.status === 'generating')
     if (hasGenerating) {
@@ -68,7 +86,7 @@ export default function ProjectBidsClient({ projectId }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 size={24} className="animate-spin text-text-muted" />
+        <Loader2 size={20} className="animate-spin text-text-muted" />
       </div>
     )
   }
@@ -78,23 +96,31 @@ export default function ProjectBidsClient({ projectId }: Props) {
       {/* Back */}
       <button
         onClick={() => router.push('/vendy/bids')}
-        className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary transition-colors mb-6"
+        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors mb-5"
       >
-        <ChevronLeft size={16} />
+        <ChevronLeft size={14} />
         Bids
       </button>
 
-      {/* Project header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-text-primary tracking-tight">{projectName}</h1>
-        {bids[0]?.project_name && setup?.project_name !== bids[0]?.project_name && (
-          <p className="text-sm text-text-muted mt-0.5">{bids[0]?.project_name}</p>
-        )}
+      {/* Page header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold text-text-primary tracking-tight">{projectName}</h1>
+          {hasBids && (
+            <p className="text-[11px] text-text-muted mt-0.5">
+              {bids.length} bid{bids.length !== 1 ? 's' : ''} across{' '}
+              {new Set(bids.map(b => b.cost_code)).size} cost codes ·{' '}
+              <span className="text-primary font-medium">
+                {bids.filter(b => b.status === 'approved').length}/{bids.length} approved
+              </span>
+            </p>
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-error/10 border border-error/20 rounded-xl mb-6 text-sm text-error">
-          <AlertTriangle size={15} />
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-danger-bg border border-danger/20 rounded-lg mb-5 text-xs text-danger">
+          <AlertTriangle size={13} />
           {error}
         </div>
       )}
@@ -122,23 +148,18 @@ export default function ProjectBidsClient({ projectId }: Props) {
 // ── Phase A: Vendor selection + generate ──────────────────────────────────────
 
 function VendorSetup({
-  setup,
-  projectId,
-  onGenerated,
-  onError,
+  setup, projectId, onGenerated, onError,
 }: {
   setup: BidSetup | null
   projectId: string
   onGenerated: () => void
   onError: (msg: string) => void
 }) {
-  // selection: { cost_code: Set<vendor_id> }
   const [selection, setSelection] = useState<Record<string, Set<string>>>({})
   const [showModal, setShowModal] = useState(false)
   const [generating, setGenerating] = useState(false)
   const router = useRouter()
 
-  // Initialise selection to all vendors when setup loads
   useEffect(() => {
     if (!setup) return
     const initial: Record<string, Set<string>> = {}
@@ -163,7 +184,6 @@ function VendorSetup({
   async function handleConfirm() {
     setGenerating(true)
     try {
-      // Build selection map (only include codes with ≥1 vendor selected)
       const sel: Record<string, string[]> = {}
       for (const [code, set] of Object.entries(selection)) {
         if (set.size > 0) sel[code] = Array.from(set)
@@ -180,20 +200,15 @@ function VendorSetup({
 
   if (!setup) {
     return (
-      <div className="bg-surface border border-border rounded-2xl p-12 text-center">
-        <div className="w-12 h-12 rounded-2xl bg-surface-raised flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle size={20} className="text-text-muted" />
-        </div>
+      <div className="bg-surface border border-border rounded-[14px] p-12 text-center">
+        <AlertTriangle size={18} className="text-text-muted mx-auto mb-3" />
         <p className="text-sm font-medium text-text-primary mb-1">No approved takeoff found</p>
-        <p className="text-xs text-text-muted mb-4">
-          Approve a takeoff for this project before generating bids.
-        </p>
+        <p className="text-xs text-text-muted mb-4">Approve a takeoff for this project first.</p>
         <button
           onClick={() => router.push(`/vendy/takeoffs/${projectId}`)}
-          className="inline-flex items-center gap-1.5 h-9 px-4 text-sm font-medium border border-border text-text-secondary rounded-lg hover:border-border-bright transition-colors"
+          className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-border text-text-secondary rounded-md hover:border-primary/40 transition-colors"
         >
-          Go to Takeoffs
-          <ChevronRight size={14} />
+          Go to Takeoffs <ArrowRight size={12} />
         </button>
       </div>
     )
@@ -201,29 +216,26 @@ function VendorSetup({
 
   return (
     <>
-      {/* Intro card */}
-      <div className="flex items-start gap-4 px-5 py-4 bg-surface border border-border rounded-2xl mb-6">
-        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-          <Users size={16} className="text-primary" />
+      {/* Intro */}
+      <div className="flex items-center gap-4 px-5 py-4 bg-surface border border-border rounded-[14px] mb-5">
+        <div className="w-8 h-8 rounded-lg bg-primary-light flex items-center justify-center shrink-0">
+          <Sparkles size={14} className="text-primary" />
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium text-text-primary">Select vendors for each cost code</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Claude will generate a tailored bid for each selected vendor using their pricing history.
-            Remove any vendors you don&apos;t want to include.
+            Claude generates a tailored bid for each vendor using their pricing history. Remove vendors to exclude.
           </p>
         </div>
         <button
           onClick={() => setShowModal(true)}
           disabled={totalVendors === 0}
-          className="inline-flex items-center gap-2 h-10 px-5 text-sm font-semibold bg-primary text-white rounded-xl hover:bg-primary-hover active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
         >
-          Generate Bids
-          <ArrowRight size={15} />
+          <Sparkles size={12} /> Generate Bids
         </button>
       </div>
 
-      {/* Cost code list */}
       <div className="space-y-3">
         {setup.cost_codes.map(cc => (
           <CostCodeVendorRow
@@ -236,28 +248,21 @@ function VendorSetup({
       </div>
 
       {/* Sticky footer */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-surface/90 backdrop-blur px-6 py-4 flex items-center justify-between z-40">
-        <p className="text-sm text-text-muted">
-          {totalVendors === 0 ? (
-            <span className="text-warning">Select at least one vendor to continue</span>
-          ) : (
-            <>
-              <span className="font-semibold text-text-primary">{totalVendors}</span> vendor{totalVendors !== 1 ? 's' : ''} across{' '}
-              <span className="font-semibold text-text-primary">{totalCodes}</span> cost code{totalCodes !== 1 ? 's' : ''}
-            </>
-          )}
+      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-surface/95 backdrop-blur px-6 py-3 flex items-center justify-between z-40">
+        <p className="text-xs text-text-muted">
+          {totalVendors === 0
+            ? <span className="text-warning">Select at least one vendor to continue</span>
+            : <><span className="font-semibold text-text-primary">{totalVendors}</span> vendor{totalVendors !== 1 ? 's' : ''} across <span className="font-semibold text-text-primary">{totalCodes}</span> cost code{totalCodes !== 1 ? 's' : ''}</>}
         </p>
         <button
           onClick={() => setShowModal(true)}
           disabled={totalVendors === 0}
-          className="inline-flex items-center gap-2 h-10 px-6 text-sm font-semibold bg-primary text-white rounded-xl hover:bg-primary-hover active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Generate Bids
-          <ArrowRight size={15} />
+          <Sparkles size={12} /> Generate Bids
         </button>
       </div>
 
-      {/* Confirmation modal */}
       {showModal && (
         <ConfirmModal
           totalVendors={totalVendors}
@@ -272,122 +277,45 @@ function VendorSetup({
 }
 
 function CostCodeVendorRow({
-  cc,
-  selected,
-  onToggle,
+  cc, selected, onToggle,
 }: {
   cc: BidSetupCostCode
   selected: Set<string>
   onToggle: (vendorId: string) => void
 }) {
-  const selectedCount = selected.size
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-raised/50">
-        <div>
-          <p className="text-sm font-semibold text-text-primary">
-            {cc.cost_code} — {cc.cost_code_name}
-          </p>
-          <p className="text-xs text-text-muted mt-0.5">
-            {cc.takeoff_item_count} takeoff item{cc.takeoff_item_count !== 1 ? 's' : ''}
-          </p>
+    <div className="bg-surface border border-border rounded-[14px] overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold text-primary">{cc.cost_code_name}</span>
+          <span className="px-1.5 py-0.5 rounded bg-primary-light text-primary-mid text-[10px] font-medium">{cc.cost_code}</span>
+          <span className="text-[11px] text-text-muted">{cc.vendors.length} vendor{cc.vendors.length !== 1 ? 's' : ''}</span>
         </div>
-        <span className={`text-xs font-medium tabular-nums ${selectedCount === 0 ? 'text-text-muted' : 'text-text-secondary'}`}>
-          {selectedCount} of {cc.vendors.length} selected
+        <span className={`text-[11px] font-medium ${selected.size === 0 ? 'text-text-muted' : 'text-text-secondary'}`}>
+          {selected.size} of {cc.vendors.length} selected
         </span>
       </div>
-
-      {/* Vendor chips */}
-      <div className="px-5 py-4 flex flex-wrap gap-2">
+      <div className="px-5 py-3 flex flex-wrap gap-2">
         {cc.vendors.map(v => {
           const isSelected = selected.has(v.vendor_id)
           return (
             <button
               key={v.vendor_id}
               onClick={() => onToggle(v.vendor_id)}
-              title={v.line_item_count > 0 ? `${v.line_item_count} pricing line items` : 'No historical pricing'}
-              className={`inline-flex items-center gap-1.5 h-8 pl-3 pr-2 rounded-full text-xs font-medium transition-all duration-150 ${
+              className={`inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2 rounded-full text-[11px] font-medium transition-all ${
                 isSelected
-                  ? 'bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25'
+                  ? 'bg-primary-light text-primary border border-primary/20 hover:bg-primary/10'
                   : 'bg-surface-raised text-text-muted border border-border hover:border-border-bright'
               }`}
             >
-              {v.vendor_name}
-              {isSelected && (
-                <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary/20 hover:bg-primary/40 transition-colors">
-                  <X size={9} />
-                </span>
-              )}
+              {v.vendor_name.replace(/_/g, ' ')}
+              {isSelected && <X size={9} />}
             </button>
           )
         })}
         {cc.vendors.length === 0 && (
-          <p className="text-xs text-text-muted italic">No vendors with pricing history for this code</p>
+          <p className="text-[11px] text-text-muted italic">No vendors with pricing for this code</p>
         )}
-      </div>
-    </div>
-  )
-}
-
-function ConfirmModal({
-  totalVendors,
-  totalCodes,
-  generating,
-  onConfirm,
-  onCancel,
-}: {
-  totalVendors: number
-  totalCodes: number
-  generating: boolean
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={() => !generating && onCancel()}
-      />
-      {/* Modal */}
-      <div className="relative bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in slide-in-from-bottom-4">
-        <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
-          <FileText size={20} className="text-primary" />
-        </div>
-        <h2 className="text-lg font-semibold text-text-primary mb-2">Generate bid documents</h2>
-        <p className="text-sm text-text-muted mb-5 leading-relaxed">
-          Claude will generate a tailored bid for each vendor. This creates{' '}
-          <span className="font-semibold text-text-primary">{totalVendors} bid document{totalVendors !== 1 ? 's' : ''}</span> across{' '}
-          <span className="font-semibold text-text-primary">{totalCodes} cost code{totalCodes !== 1 ? 's' : ''}</span>.
-          Each bid uses that vendor&apos;s historical pricing and the approved takeoff quantities.
-        </p>
-
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-surface-raised rounded-xl mb-6">
-          <Loader2 size={12} className="text-text-muted shrink-0" />
-          <p className="text-xs text-text-muted">Takes approximately {Math.ceil(totalVendors * 15 / 60)} – {Math.ceil(totalVendors * 30 / 60)} minutes</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onCancel}
-            disabled={generating}
-            className="flex-1 h-10 text-sm font-medium border border-border text-text-secondary rounded-xl hover:border-border-bright transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={generating}
-            className="flex-1 h-10 text-sm font-semibold bg-primary text-white rounded-xl hover:bg-primary-hover active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {generating ? (
-              <><Loader2 size={14} className="animate-spin" /> Starting…</>
-            ) : (
-              <>Generate Bids <ArrowRight size={14} /></>
-            )}
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -396,11 +324,7 @@ function ConfirmModal({
 // ── Phase B: Bids matrix ──────────────────────────────────────────────────────
 
 function BidsMatrix({
-  bids,
-  projectId,
-  onBidApproved,
-  onError,
-  onNavigate,
+  bids, projectId, onBidApproved, onError, onNavigate,
 }: {
   bids: Bid[]
   projectId: string
@@ -411,17 +335,12 @@ function BidsMatrix({
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set())
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set())
 
-  // Group bids by cost_code, preserving insertion order
   const grouped = new Map<string, { name: string; bids: Bid[] }>()
   for (const bid of bids) {
     const existing = grouped.get(bid.cost_code)
     if (existing) existing.bids.push(bid)
     else grouped.set(bid.cost_code, { name: bid.cost_code_name, bids: [bid] })
   }
-
-  const approvedCount = bids.filter(b => b.status === 'approved').length
-  const totalSubtotal = bids.reduce((s, b) => s + (b.subtotal ?? 0), 0)
-  const anyGenerating = bids.some(b => b.status === 'generating')
 
   async function handleApprove(bid: Bid) {
     setApprovingIds(prev => new Set(prev).add(bid.bid_id))
@@ -450,155 +369,155 @@ function BidsMatrix({
 
   return (
     <div className="space-y-3">
-      {/* Summary bar */}
-      <div className="flex items-center gap-6 px-5 py-4 bg-surface border border-border rounded-2xl">
-        <div>
-          <p className="text-xs text-text-muted">Total bid value</p>
-          <p className="text-lg font-semibold text-text-primary tabular-nums">${fmt(totalSubtotal)}</p>
-        </div>
-        <div className="h-8 w-px bg-border" />
-        <div>
-          <p className="text-xs text-text-muted">Approved</p>
-          <p className="text-base font-semibold text-text-primary">{approvedCount} / {bids.length}</p>
-        </div>
-        {anyGenerating && (
-          <>
-            <div className="h-8 w-px bg-border" />
-            <div className="flex items-center gap-1.5 text-primary">
-              <Loader2 size={13} className="animate-spin" />
-              <p className="text-xs font-medium">Generating… auto-refreshing</p>
+      {Array.from(grouped.entries()).map(([costCode, { name, bids: codeBids }]) => (
+        <div key={costCode} className="bg-surface border border-border rounded-[14px] overflow-hidden">
+          {/* Cost code header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border-light">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-semibold text-primary">{name}</span>
+              <span className="px-1.5 py-0.5 rounded bg-primary-light text-primary-mid text-[10px] font-medium">{costCode}</span>
+              <span className="text-[11px] text-text-muted">{codeBids.length} vendor{codeBids.length !== 1 ? 's' : ''}</span>
             </div>
-          </>
-        )}
-      </div>
+            <button className="text-[11px] font-medium text-primary hover:text-primary/70 transition-colors">
+              + Add vendor
+            </button>
+          </div>
 
-      {/* Cost code sections */}
-      {Array.from(grouped.entries()).map(([costCode, { name, bids: codeBids }]) => {
-        const codeApproved = codeBids.filter(b => b.status === 'approved').length
-        const codeTotal = codeBids.reduce((s, b) => s + (b.subtotal ?? 0), 0)
-
-        return (
-          <div key={costCode} className="bg-surface border border-border rounded-2xl overflow-hidden">
-            {/* Cost code header */}
-            <div className="flex items-center justify-between px-5 py-4 bg-surface-raised/50 border-b border-border">
-              <div>
-                <p className="text-sm font-semibold text-text-primary">{costCode} — {name}</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  {codeBids.length} vendor{codeBids.length !== 1 ? 's' : ''} · {codeApproved} approved
-                </p>
-              </div>
-              {codeTotal > 0 && (
-                <p className="text-sm font-semibold text-text-primary tabular-nums">${fmt(codeTotal)}</p>
-              )}
-            </div>
-
-            {/* Vendor rows */}
-            <div className="divide-y divide-border">
-              {codeBids.map(bid => (
+          {/* Vendor rows — strict 4-column grid */}
+          <div className="divide-y divide-border-light">
+            {codeBids.map(bid => {
+              const isGenerating = bid.status === 'generating'
+              const canApprove = bid.status === 'needs_review'
+              return (
                 <div
                   key={bid.bid_id}
-                  className="flex items-center gap-4 px-5 py-4 hover:bg-surface-raised/30 transition-colors"
+                  className={`grid items-center px-5 py-3 transition-colors ${isGenerating ? 'opacity-50' : 'hover:bg-surface-raised/60'}`}
+                  style={{ gridTemplateColumns: 'minmax(0,1fr) 88px 72px 112px' }}
                 >
-                  {/* Vendor name + subtotal */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary">{bid.vendor_name}</p>
-                    {bid.subtotal != null && bid.status !== 'generating' && (
-                      <p className="text-xs tabular-nums text-text-muted mt-0.5">
+                  {/* Vendor name */}
+                  <div className="min-w-0 pr-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-md bg-primary-light flex items-center justify-center shrink-0">
+                        <span className="text-[10px] font-bold text-primary">{initials(bid.vendor_name)}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium text-text-primary truncate">
+                          {bid.vendor_name.replace(/_/g, ' ')}
+                        </p>
+                        {bid.generated_at && (
+                          <p className="text-[10px] text-text-muted">
+                            {isGenerating ? 'Generating…' : `Generated ${new Date(bid.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <StatusDot status={bid.status} />
+                  </div>
+
+                  {/* Total */}
+                  <div className="text-right">
+                    {isGenerating ? (
+                      <span className="text-[12px] font-mono text-primary-mid">—</span>
+                    ) : bid.subtotal != null ? (
+                      <span className="text-[12px] font-mono font-medium text-text-primary">
                         ${fmt(bid.subtotal)}
-                      </p>
+                      </span>
+                    ) : (
+                      <span className="text-[12px] font-mono text-text-muted">—</span>
                     )}
                   </div>
 
-                  {/* Status badge */}
-                  <BidStatusBadge status={bid.status} />
-
                   {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* View */}
-                    {bid.status !== 'generating' && (
+                  <div className="flex items-center justify-end gap-1.5">
+                    {!isGenerating && (
                       <button
                         onClick={() => onNavigate(bid.bid_id)}
-                        className="h-8 px-3 text-xs font-medium border border-border text-text-secondary rounded-lg hover:border-border-bright hover:text-text-primary transition-colors"
+                        className="h-7 px-2.5 text-[11px] font-medium border border-border text-text-secondary rounded-md hover:border-border-bright hover:text-text-primary transition-colors"
                       >
                         View
                       </button>
                     )}
-
-                    {/* Approve */}
-                    {bid.status === 'needs_review' && (
+                    {canApprove && (
                       <button
                         onClick={() => handleApprove(bid)}
                         disabled={approvingIds.has(bid.bid_id)}
-                        className="h-8 px-3 text-xs font-medium bg-success/15 text-success rounded-lg hover:bg-success/25 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                        className="h-7 px-2.5 text-[11px] font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center gap-1"
                       >
-                        {approvingIds.has(bid.bid_id)
-                          ? <Loader2 size={11} className="animate-spin" />
-                          : <CheckCircle size={11} />}
+                        {approvingIds.has(bid.bid_id) ? <Loader2 size={10} className="animate-spin" /> : null}
                         Approve
                       </button>
                     )}
-
-                    {/* Download PDF */}
                     {(bid.status === 'needs_review' || bid.status === 'approved') && (
                       <button
                         onClick={() => handleDownload(bid)}
                         disabled={downloadingIds.has(bid.bid_id)}
                         title="Download PDF"
-                        className="h-8 w-8 flex items-center justify-center border border-border text-text-muted rounded-lg hover:border-border-bright hover:text-text-secondary transition-colors disabled:opacity-50"
+                        className="h-7 w-7 flex items-center justify-center border border-border text-text-muted rounded-md hover:border-border-bright hover:text-text-secondary transition-colors disabled:opacity-50"
                       >
                         {downloadingIds.has(bid.bid_id)
-                          ? <Loader2 size={13} className="animate-spin" />
-                          : <Download size={13} />}
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <Download size={11} />}
                       </button>
+                    )}
+                    {bid.status === 'approved' && (
+                      <CheckCircle size={14} className="text-success ml-0.5" />
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
+              )
+            })}
           </div>
-        )
-      })}
+        </div>
+      ))}
     </div>
   )
 }
 
-// ── Shared sub-components ─────────────────────────────────────────────────────
+// ── Confirm modal ─────────────────────────────────────────────────────────────
 
-function BidStatusBadge({ status }: { status: Bid['status'] }) {
-  if (status === 'generating') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary animate-pulse shrink-0">
-        <Loader2 size={10} className="animate-spin" />
-        Generating…
-      </span>
-    )
-  }
-  if (status === 'needs_review') {
-    return (
-      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-warning/15 text-warning shrink-0">
-        Needs Review
-      </span>
-    )
-  }
-  if (status === 'approved') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/15 text-success shrink-0">
-        <CheckCircle size={10} />
-        Approved
-      </span>
-    )
-  }
-  if (status === 'failed') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-error/15 text-error shrink-0">
-        <AlertTriangle size={10} />
-        Failed
-      </span>
-    )
-  }
+function ConfirmModal({
+  totalVendors, totalCodes, generating, onConfirm, onCancel,
+}: {
+  totalVendors: number
+  totalCodes: number
+  generating: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
   return (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-surface-raised text-text-muted shrink-0">
-      {status}
-    </span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !generating && onCancel()} />
+      <div className="relative bg-surface border border-border rounded-[14px] shadow-card w-full max-w-sm p-6 animate-in fade-in">
+        <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center mb-4">
+          <FileText size={16} className="text-primary" />
+        </div>
+        <h2 className="text-[15px] font-semibold text-text-primary mb-1.5">Generate bid documents</h2>
+        <p className="text-xs text-text-muted mb-4 leading-relaxed">
+          Claude will generate a tailored bid for each vendor — {' '}
+          <span className="font-medium text-text-primary">{totalVendors} document{totalVendors !== 1 ? 's' : ''}</span> across{' '}
+          <span className="font-medium text-text-primary">{totalCodes} cost code{totalCodes !== 1 ? 's' : ''}</span>.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onCancel}
+            disabled={generating}
+            className="flex-1 h-8 text-xs font-medium border border-border text-text-secondary rounded-md hover:border-border-bright transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={generating}
+            className="flex-1 h-8 text-xs font-semibold bg-primary text-white rounded-md hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            {generating ? <><Loader2 size={12} className="animate-spin" /> Starting…</> : <><Sparkles size={12} /> Generate</>}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
