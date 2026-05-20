@@ -434,11 +434,17 @@ async def list_vendors(
     user: dict = Depends(get_current_user),
 ) -> list[dict]:
     vendors = fs.list_vendors(active_only=active is True)
+    if not vendors:
+        return []
+    # Single pass over cost_codes collection — no N+1 queries
+    all_slugs = [v["vendor_id"] for v in vendors]
+    cost_codes_map = fs.list_cost_codes_for_vendors(all_slugs)
     result = []
     for v in vendors:
+        slug = v["vendor_id"]
         result.append(
             {
-                "vendor_id": v["vendor_id"],
+                "vendor_id": slug,
                 "name": v.get("name", ""),
                 "trade": v.get("trade", ""),
                 "contact_email": v.get("contact_email", ""),
@@ -448,6 +454,7 @@ async def list_vendors(
                 "price_book_last_updated": (v.get("price_book") or {}).get(
                     "last_updated"
                 ),
+                "cost_codes": cost_codes_map.get(slug, []),
             }
         )
     result.sort(key=lambda v: v["name"].lower())
@@ -459,6 +466,10 @@ async def get_vendor(slug: str, user: dict = Depends(get_current_user)) -> dict:
     vendor = fs.get_vendor_full(slug)
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
+    # Normalise active — legacy docs may not have the field; default is True
+    vendor.setdefault("active", True)
+    # Attach cost codes from shared collection
+    vendor["cost_codes"] = fs.list_cost_codes_for_vendor(slug)
     return vendor
 
 

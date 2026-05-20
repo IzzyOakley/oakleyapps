@@ -396,6 +396,38 @@ def list_categories() -> list[str]:
     return sorted(categories)
 
 
+def list_cost_codes_for_vendor(slug: str) -> list[dict]:
+    """Return [{full_code, name}] for cost codes that list this vendor."""
+    db = get_db()
+    docs = (
+        db.collection("apps")
+        .document("shared")
+        .collection("cost_codes")
+        .where(filter=firestore.FieldFilter("vendors", "array_contains", slug))
+        .stream()
+    )
+    return [
+        {"full_code": d.id, "name": (d.to_dict() or {}).get("name", "")} for d in docs
+    ]
+
+
+def list_cost_codes_for_vendors(vendor_slugs: list[str]) -> dict[str, list[dict]]:
+    """Return {vendor_slug: [{full_code, name}]} in a single pass over cost_codes."""
+    if not vendor_slugs:
+        return {}
+    db = get_db()
+    docs = db.collection("apps").document("shared").collection("cost_codes").stream()
+    slugs_set = set(vendor_slugs)
+    result: dict[str, list[dict]] = {s: [] for s in vendor_slugs}
+    for d in docs:
+        data = d.to_dict() or {}
+        entry = {"full_code": d.id, "name": data.get("name", "")}
+        for vendor_slug in data.get("vendors", []):
+            if vendor_slug in slugs_set:
+                result[vendor_slug].append(entry)
+    return result
+
+
 # ── Approved Takeoffs ───────────────────────────────────────────────────────
 
 

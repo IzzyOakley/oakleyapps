@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import {
   listVendors, createVendor,
-  type VendorSummary,
+  type VendorSummary, type VendorCostCode,
 } from '@/lib/vendy/vendors-api'
 
 const TRADES = [
@@ -29,8 +29,20 @@ function displayName(vendor: VendorSummary) {
   return vendor.name?.trim() || deslugify(vendor.vendor_id)
 }
 
-function fmt(n: number) {
-  return n.toLocaleString('en-US')
+function CostCodeTags({ codes }: { codes: VendorCostCode[] }) {
+  if (codes.length === 0) return <span className="text-[11px] italic text-gray-400">No cost codes linked</span>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {codes.map(c => (
+        <span
+          key={c.full_code}
+          className="inline-flex items-center text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200 rounded-md px-1.5 py-0.5"
+        >
+          {c.full_code}·{c.name}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function VendorCard({ vendor, onClick }: { vendor: VendorSummary; onClick: () => void }) {
@@ -41,37 +53,24 @@ function VendorCard({ vendor, onClick }: { vendor: VendorSummary; onClick: () =>
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[13px] font-semibold text-gray-900 truncate">{displayName(vendor)}</span>
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-[14px] font-semibold text-gray-900 truncate">{displayName(vendor)}</span>
             {vendor.active ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">
                 <CheckCircle size={10} /> Active
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5 shrink-0">
                 <XCircle size={10} /> Inactive
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-500 mb-3">{vendor.trade || <span className="italic text-gray-400">No trade set</span>}</p>
-          <div className="flex items-center gap-4">
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Bids Processed</p>
-              <p className="text-[13px] font-semibold text-gray-800">{fmt(vendor.bids_processed)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Format</p>
-              <p className="text-[12px] text-gray-600 capitalize">{vendor.bid_format.replace('_', ' ')}</p>
-            </div>
-            {vendor.price_book_last_updated && (
-              <div>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Last Activity</p>
-                <p className="text-[12px] text-gray-600">
-                  {new Date(vendor.price_book_last_updated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </p>
-              </div>
-            )}
-          </div>
+          <CostCodeTags codes={vendor.cost_codes ?? []} />
+          {vendor.bids_processed > 0 && (
+            <p className="text-[11px] text-gray-400 mt-2">
+              {vendor.bids_processed} bid{vendor.bids_processed !== 1 ? 's' : ''} processed
+            </p>
+          )}
         </div>
         <ChevronRight size={16} className="text-gray-300 group-hover:text-violet-400 transition-colors mt-1 shrink-0" />
       </div>

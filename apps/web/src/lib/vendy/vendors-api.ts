@@ -1,5 +1,10 @@
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface VendorCostCode {
+  full_code: string
+  name: string
+}
+
 export interface VendorSummary {
   vendor_id: string
   name: string
@@ -9,6 +14,7 @@ export interface VendorSummary {
   active: boolean
   bids_processed: number
   price_book_last_updated: string | null
+  cost_codes: VendorCostCode[]
 }
 
 export interface PriceBookStats {
@@ -37,6 +43,7 @@ export interface VendorDetail extends VendorSummary {
     categories: Record<string, Record<string, PriceBookEntry>>
   }
   created_at: string | null
+  // cost_codes inherited from VendorSummary
 }
 
 export interface BidLedgerEntry {

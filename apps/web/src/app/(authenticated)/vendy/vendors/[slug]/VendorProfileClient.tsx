@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import {
   getVendor, updateVendor, getVendorBidLedger,
-  type VendorDetail, type BidLedgerEntry, type PriceBookEntry,
+  type VendorDetail, type VendorCostCode, type BidLedgerEntry, type PriceBookEntry,
 } from '@/lib/vendy/vendors-api'
 
 function fmt(n: number | null | undefined, decimals = 2) {
@@ -28,6 +28,22 @@ function deslugify(slug: string) {
 
 function displayName(vendor: VendorDetail) {
   return vendor.name?.trim() || deslugify(vendor.vendor_id)
+}
+
+function CostCodePills({ codes }: { codes: VendorCostCode[] }) {
+  if (codes.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {codes.map(c => (
+        <span
+          key={c.full_code}
+          className="inline-flex items-center text-[10px] font-semibold bg-violet-50 text-violet-700 border border-violet-200 rounded-md px-2 py-0.5"
+        >
+          {c.full_code}·{c.name}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 // ── Price Book Panel ──────────────────────────────────────────────────────────
@@ -365,14 +381,6 @@ function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
                 {/* Contact details row */}
                 <div className="flex flex-wrap items-center gap-4 mt-2">
                   <div className="flex items-center gap-1.5">
-                    <Briefcase size={12} className="text-gray-400 shrink-0" />
-                    {vendor.trade ? (
-                      <span className="text-[13px] text-gray-700 font-medium">{vendor.trade}</span>
-                    ) : (
-                      <button onClick={startEdit} className="text-[12px] text-violet-500 hover:underline italic">Add trade</button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
                     <Mail size={12} className="text-gray-400 shrink-0" />
                     {vendor.contact_email ? (
                       <a href={`mailto:${vendor.contact_email}`} className="text-[13px] text-violet-600 hover:underline font-medium">
@@ -382,10 +390,10 @@ function VendorHeaderCard({ vendor, slug, onUpdated }: HeaderCardProps) {
                       <button onClick={startEdit} className="text-[12px] text-violet-500 hover:underline italic">Add email</button>
                     )}
                   </div>
-                  <span className="text-[11px] text-gray-400">
-                    {vendor.bid_format === 'itemized' ? 'Itemized bids' : 'Lump-sum bids'} · ID: {vendor.vendor_id}
-                  </span>
+                  <span className="text-[11px] text-gray-400">ID: {vendor.vendor_id}</span>
                 </div>
+                {/* Cost codes */}
+                <CostCodePills codes={vendor.cost_codes ?? []} />
               </>
             )}
           </div>
