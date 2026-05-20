@@ -108,6 +108,14 @@ jobs:
             --set-secrets "MODEL_VERSION=MODEL_VERSION:latest" \
             --set-secrets "INTERNAL_SERVICE_SECRET=INTERNAL_SERVICE_SECRET:latest"
 
+      - name: Grant Firebase App Hosting invoker access
+        run: |
+          gcloud run services add-iam-policy-binding ${{ env.SERVICE }} \
+            --member="serviceAccount:firebase-app-hosting-compute@${{ env.PROJECT }}.iam.gserviceaccount.com" \
+            --role="roles/run.invoker" \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT }}
+
       - name: Print service URL
         run: |
           gcloud run services describe ${{ env.SERVICE }} \
