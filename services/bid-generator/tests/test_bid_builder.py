@@ -5,6 +5,7 @@ Run from services/bid-generator/:
   pip install pytest
   pytest tests/test_bid_builder.py -v
 """
+
 import sys
 from pathlib import Path
 

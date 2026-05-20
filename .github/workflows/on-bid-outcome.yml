@@ -39,9 +39,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          pip install pytest
-          # Install only the packages that don't require GCP credentials for import
-          pip install google-cloud-firestore google-events
+          pip install pytest functions-framework google-cloud-firestore google-events
 
       - name: Run unit tests
         run: pytest services/cloud-functions/on_bid_outcome/tests/ -v

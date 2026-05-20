@@ -20,7 +20,11 @@ def _load_system_prompt() -> str:
 
 
 async def generate_bid(
-    takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id,
+    takeoff_items,
+    vendor_profile,
+    cost_code,
+    cost_code_name,
+    vendor_id,
     notes_context: dict | None = None,
 ) -> dict:
     import asyncio

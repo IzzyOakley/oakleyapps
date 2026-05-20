@@ -266,16 +266,18 @@ def list_vendors(active_only: bool = False) -> list[dict]:
 def get_vendor_full(slug: str) -> dict | None:
     db = get_db()
     doc = (
-        db.collection("apps").document("vendy").collection("vendors").document(slug).get()
+        db.collection("apps")
+        .document("vendy")
+        .collection("vendors")
+        .document(slug)
+        .get()
     )
     if not doc.exists:
         return None
     return {"vendor_id": doc.id, **doc.to_dict()}
 
 
-def create_vendor(
-    name: str, trade: str, contact_email: str, bid_format: str
-) -> str:
+def create_vendor(name: str, trade: str, contact_email: str, bid_format: str) -> str:
     import re
 
     db = get_db()
@@ -374,9 +376,7 @@ def create_cost_code(full_code: str, name: str, category: str) -> str:
 
 def list_categories() -> list[str]:
     db = get_db()
-    docs = (
-        db.collection("apps").document("shared").collection("cost_codes").stream()
-    )
+    docs = db.collection("apps").document("shared").collection("cost_codes").stream()
     categories: set[str] = set()
     for d in docs:
         cat = (d.to_dict() or {}).get("category")

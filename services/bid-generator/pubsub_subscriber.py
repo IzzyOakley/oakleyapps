@@ -18,6 +18,7 @@ The Cloud Run service account also needs subscriber access:
     --role="roles/pubsub.subscriber" \\
     --project=buildertrend-pipeline
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,9 +34,7 @@ logger = logging.getLogger(__name__)
 
 PUBSUB_PROJECT = os.environ.get("PUBSUB_PROJECT", "buildertrend-pipeline")
 PUBSUB_TOPIC = os.environ.get("PUBSUB_TOPIC", "takeoff-events")
-SUBSCRIPTION_ID = os.environ.get(
-    "PUBSUB_SUBSCRIPTION", f"{PUBSUB_TOPIC}-bid-generator"
-)
+SUBSCRIPTION_ID = os.environ.get("PUBSUB_SUBSCRIPTION", f"{PUBSUB_TOPIC}-bid-generator")
 
 
 def _ensure_subscription(
@@ -106,13 +105,17 @@ def start_subscriber(process_fn) -> threading.Thread:
             logger.info("Bid generation complete for project=%s", project_id)
         except Exception as exc:
             logger.error(
-                "process_approved_takeoff failed project=%s: %s — nacking", project_id, exc
+                "process_approved_takeoff failed project=%s: %s — nacking",
+                project_id,
+                exc,
             )
             message.nack()
 
     def _run() -> None:
         subscriber = pubsub_v1.SubscriberClient()
-        subscription_path = subscriber.subscription_path(PUBSUB_PROJECT, SUBSCRIPTION_ID)
+        subscription_path = subscriber.subscription_path(
+            PUBSUB_PROJECT, SUBSCRIPTION_ID
+        )
         _ensure_subscription(subscriber, subscription_path)
         logger.info("Pub/Sub subscriber listening on %s", subscription_path)
 

@@ -5,6 +5,7 @@ get_price_for_item   — 4-tier lookup following CLAUDE.md priority order
 build_bid_for_vendor — calls Claude with priority-ordered pricing context
 process_approved_takeoff — full automated pipeline triggered by Pub/Sub
 """
+
 from __future__ import annotations
 
 import json
@@ -133,9 +134,7 @@ def get_price_for_item(
 
     # ── 3: Legacy pricing_profile ─────────────────────────────────────────────
     pp_cats: dict = (
-        vendor_doc.get("pricing_profile", {})
-        .get("categories", {})
-        .get(cost_code, {})
+        vendor_doc.get("pricing_profile", {}).get("categories", {}).get(cost_code, {})
     )
     best_name, _ = _best_match(item_description, pp_cats)
     if best_name is not None:
@@ -210,7 +209,11 @@ async def build_bid_for_vendor(
             vendor_doc, cost_code, item.get("description", "")
         )
         flags.append(flag)
-        quantity = item.get("pm_override") if item.get("pm_override") is not None else item.get("quantity")
+        quantity = (
+            item.get("pm_override")
+            if item.get("pm_override") is not None
+            else item.get("quantity")
+        )
         pricing_context.append(
             {
                 "takeoff_description": item.get("description", ""),

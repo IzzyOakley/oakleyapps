@@ -1,4 +1,5 @@
 """Analyze a project notes PDF with Claude and extract bid-relevant scope."""
+
 from __future__ import annotations
 
 import asyncio

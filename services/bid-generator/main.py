@@ -16,7 +16,6 @@ import gcs_client as gcs
 import notes_analyzer
 import pdf_client as pdf
 from bid_builder import (
-    SECTION_TO_COST_CODES,
     _resolve_cost_code,
     process_approved_takeoff,
 )
@@ -34,6 +33,7 @@ INTERNAL_SERVICE_SECRET = os.environ.get(
 async def lifespan(app: FastAPI):
     if os.environ.get("ENVIRONMENT") == "production":
         import pubsub_subscriber
+
         logger.info("Starting Pub/Sub subscriber thread")
         pubsub_subscriber.start_subscriber(process_approved_takeoff)
     yield
@@ -79,9 +79,7 @@ def health():
 
 
 @app.post("/process/{project_id}", status_code=202)
-async def trigger_bid_generation(
-    project_id: str, user: dict = Depends(require_pm)
-):
+async def trigger_bid_generation(project_id: str, user: dict = Depends(require_pm)):
     """
     Manual trigger for bid generation — same logic as the Pub/Sub path.
     Useful for re-processing or testing without sending a Pub/Sub message.
@@ -297,7 +295,12 @@ async def _gather_all(tasks):
 
 
 async def _run_bid_generation(
-    bid_id, takeoff_items, vendor_profile, cost_code, cost_code_name, vendor_id,
+    bid_id,
+    takeoff_items,
+    vendor_profile,
+    cost_code,
+    cost_code_name,
+    vendor_id,
     notes_context: dict | None = None,
 ):
     try:

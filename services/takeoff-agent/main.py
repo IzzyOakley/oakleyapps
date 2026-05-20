@@ -445,7 +445,9 @@ async def list_vendors(
                 "bid_format": v.get("bid_format", "itemized"),
                 "active": v.get("active", True),
                 "bids_processed": (v.get("price_book") or {}).get("bids_processed", 0),
-                "price_book_last_updated": (v.get("price_book") or {}).get("last_updated"),
+                "price_book_last_updated": (v.get("price_book") or {}).get(
+                    "last_updated"
+                ),
             }
         )
     result.sort(key=lambda v: v["name"].lower())
