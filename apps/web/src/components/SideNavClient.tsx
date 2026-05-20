@@ -4,11 +4,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { LayoutDashboard, FileText, RefreshCw, Shield, LogOut, Ruler, FileOutput } from 'lucide-react'
 import type { AuthUser, UserRole } from '@/types/auth'
+import type { JSX } from 'react'
 
 interface NavItem {
   href: string
   label: string
-  icon: React.ReactNode
+  icon: JSX.Element
   roles: UserRole[]
   indent?: boolean
 }
@@ -47,16 +48,22 @@ export default function SideNavClient({ user }: Props) {
   }
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 flex flex-col z-30 border-r border-border"
-      style={{ background: '#07070D' }}
-    >
-      <div className="px-5 py-5 border-b border-border">
-        <span className="text-lg font-semibold text-text-primary">Oakley</span>
-        <span className="text-lg font-semibold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent"> Apps</span>
+    <aside className="fixed left-0 top-0 h-screen w-60 flex flex-col z-30 bg-sidebar border-r border-white/5">
+      {/* Logo */}
+      <div className="px-5 py-5 border-b border-white/5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center shrink-0">
+            <span className="text-white text-xs font-bold">V</span>
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-white">Oakley</span>
+            <span className="text-sm font-semibold text-primary-mid"> Apps</span>
+          </div>
+        </div>
       </div>
 
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
-        <p className="text-xs font-medium uppercase tracking-widest text-text-muted mt-2 mb-2 px-3">Apps</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-white/20 mt-2 mb-2 px-2">Apps</p>
         <ul className="space-y-0.5">
           {visibleItems.map(item => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
@@ -64,15 +71,17 @@ export default function SideNavClient({ user }: Props) {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 ${
-                    item.indent ? 'ml-4' : ''
+                  className={`flex items-center gap-2.5 px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 ${
+                    item.indent ? 'ml-5' : ''
                   } ${
                     isActive
-                      ? 'text-text-primary bg-surface-raised border-l-2 border-primary pl-[10px]'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+                      ? 'text-nav-active bg-sidebar-active rounded-r-md border-l-2 border-primary pl-[9px]'
+                      : 'text-nav-inactive rounded-md hover:text-white/70 hover:bg-white/5'
                   }`}
                 >
-                  {item.icon}
+                  <span className={isActive ? 'text-nav-active' : 'text-nav-inactive'}>
+                    {item.icon}
+                  </span>
                   {item.label}
                 </Link>
               </li>
@@ -81,19 +90,19 @@ export default function SideNavClient({ user }: Props) {
         </ul>
       </nav>
 
-      <div className="px-3 py-4 border-t border-border">
-        <div className="flex items-center gap-3 px-3 py-2">
+      <div className="px-3 py-4 border-t border-white/5">
+        <div className="flex items-center gap-2.5 px-2.5 py-2">
           <UserAvatar user={user} />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-text-primary truncate">{user.name}</p>
-            <p className="text-xs text-text-muted">{ROLE_LABELS[user.role]}</p>
+            <p className="text-[11px] font-medium text-white/80 truncate">{user.name}</p>
+            <p className="text-[10px] text-nav-inactive">{ROLE_LABELS[user.role]}</p>
           </div>
           <button
             onClick={handleSignOut}
-            className="text-text-muted hover:text-text-secondary transition-colors duration-150 shrink-0"
+            className="text-nav-inactive hover:text-white/60 transition-colors duration-150 shrink-0"
             title="Sign out"
           >
-            <LogOut size={16} />
+            <LogOut size={14} />
           </button>
         </div>
       </div>
