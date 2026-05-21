@@ -26,10 +26,10 @@ Work entirely within the existing monorepo.
 | 3 | Bid Generator | ✅ Complete |
 | 4 | Vendor Intelligence | ✅ Complete |
 | 5 | Bid Lifecycle | ✅ Complete — live in production |
-| 6 | Analytics & Reporting | ⬜ Not started |
+| 6 | Analytics & Reporting | ✅ Complete — live in production |
 
-**The takeoff feature is live.** After every change to shared files, verify that the hub page,
-blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
+**All phases complete. Vendy is fully operational in production.**
+After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
 ---
 
@@ -59,21 +59,25 @@ oakleyapps/
 │   │   │       └── review/[job_id]/
 │   │   │           ├── page.tsx
 │   │   │           └── ReviewClient.tsx
-│   │   └── bids/                            # Bid generator UI
-│   │       ├── page.tsx
-│   │       ├── BidsHubClient.tsx            # Hub: Needs Review / In Progress / Completed
-│   │       └── [project_id]/
-│   │           ├── page.tsx
-│   │           ├── ProjectBidsClient.tsx    # Vendor selection + bid generation
-│   │           └── [bid_id]/
-│   │               ├── page.tsx
-│   │               └── BidReviewClient.tsx  # Line item review, edit, approve
+│   │   ├── bids/                            # Bid generator UI
+│   │   │   ├── page.tsx
+│   │   │   ├── BidsHubClient.tsx            # Hub: Needs Review / In Progress / Completed
+│   │   │   └── [project_id]/
+│   │   │       ├── page.tsx
+│   │   │       ├── ProjectBidsClient.tsx    # Vendor selection + bid generation
+│   │   │       └── [bid_id]/
+│   │   │           ├── page.tsx
+│   │   │           └── BidReviewClient.tsx  # Line item review, action bar, comms log
+│   │   └── analytics/                       # Analytics dashboard (management/admin only)
+│   │       ├── page.tsx                     # Server component — role gate (management/admin)
+│   │       └── AnalyticsClient.tsx          # 4 stat cards + 3 charts + cost-vs-budget table
 │   ├── app/api/vendy/[...path]/route.ts     # ⚠ EXISTING proxy — extend, don't replace
 │   ├── app/api/vendy/bids/[...path]/route.ts  # Proxy to bid-generator Cloud Run
 │   └── lib/vendy/
 │       ├── api.ts                           # ⚠ EXISTING — add functions, don't remove
 │       ├── types.ts                         # ⚠ EXISTING — add types, don't remove
-│       └── bids-api.ts                      # Bid-specific fetch helpers (downloadBidPdf etc.)
+│       ├── bids-api.ts                      # Bid-specific fetch helpers (downloadBidPdf etc.)
+│       └── analytics-api.ts                 # Analytics fetch helpers (4 endpoints)
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here
@@ -100,15 +104,21 @@ oakleyapps/
 │   ├── Dockerfile
 │   └── tests/test_bid_builder.py            # Unit tests — 4 pricing tiers
 │
+├── services/bigquery/
+│   └── setup_views.sql                      # Run once in BigQuery console to create views
 ├── services/cloud-functions/
-│   └── on_bid_outcome/                      # GCP Cloud Function (gen2) — buildertrend-pipeline
-│       ├── main.py                          # Entry: on_bid_outcome — writes bid_ledger + updates price_book
-│       ├── requirements.txt
-│       └── tests/test_price_book.py
+│   ├── on_bid_outcome/                      # GCP Cloud Function (gen2) — buildertrend-pipeline
+│   │   ├── main.py                          # Entry: on_bid_outcome — writes bid_ledger + updates price_book
+│   │   ├── requirements.txt
+│   │   └── tests/test_price_book.py
+│   └── bid_ledger_to_bigquery/              # Scheduled Cloud Function (nightly 02:00 UTC)
+│       ├── main.py                          # HTTP trigger — exports bid_ledger docs to BigQuery
+│       └── requirements.txt
 └── .github/workflows/
     ├── takeoff-agent.yml                    # CI/CD for takeoff-agent Cloud Run service
     ├── bid-generator.yml                    # CI/CD for bid-generator Cloud Run service
-    └── on-bid-outcome.yml                   # CI/CD for on_bid_outcome Cloud Function (gen2)
+    ├── on-bid-outcome.yml                   # CI/CD for on_bid_outcome Cloud Function (gen2)
+    └── bid-ledger-to-bigquery.yml           # CI/CD for bid_ledger_to_bigquery + Cloud Scheduler
 ```
 
 ---
@@ -551,6 +561,45 @@ curl http://localhost:8001/health
 | Function | Trigger | Project | Description |
 |----------|---------|---------|-------------|
 | `on_bid_outcome` | Firestore onUpdate `apps/vendy/bids/{bid_id}` | buildertrend-pipeline | Writes `bid_ledger` entry + updates `price_book` rolling stats when status → `awarded` or `not_awarded` |
+
+---
+
+## BigQuery
+
+**GCP project:** `buildertrend-pipeline` | **Dataset:** `vendy_analytics`
+
+### Exported collections (via Firestore → BigQuery extension)
+Install the `firebase/firestore-bigquery-export` extension in GCP console for each:
+
+| Firestore collection | BQ table prefix | Raw tables created |
+|---|---|---|
+| `apps/vendy/bids` | `bids` | `bids_raw_changelog`, `bids_raw_latest` |
+| `apps/vendy/vendors` | `vendors` | `vendors_raw_changelog`, `vendors_raw_latest` |
+| `apps/vendy/runs` | `runs` | `runs_raw_changelog`, `runs_raw_latest` |
+| `apps/shared/projects` | `projects` | `projects_raw_changelog`, `projects_raw_latest` |
+| `apps/shared/takeoffs` | `takeoffs` | `takeoffs_raw_changelog`, `takeoffs_raw_latest` |
+| `apps/shared/cost_codes` | `cost_codes` | `cost_codes_raw_changelog`, `cost_codes_raw_latest` |
+
+### bid_ledger subcollection (manual export)
+Subcollections are not handled by the extension. The `bid_ledger_to_bigquery` Cloud Function runs nightly (02:00 UTC via Cloud Scheduler) and incrementally exports all `apps/vendy/vendors/*/bid_ledger` docs to `vendy_analytics.bid_ledger`. Last-run state stored in `apps/vendy/analytics_config/bid_ledger_export`.
+
+### Views (run `services/bigquery/setup_views.sql` once)
+| View | Description |
+|---|---|
+| `bids_latest` | Deduped bid snapshots — one row per bid |
+| `vendors_latest` | Deduped vendor snapshots with `bids_processed` |
+| `projects_latest` | Deduped project snapshots with `total_budget` |
+| `bid_ledger_flat` | bid_ledger rows with `line_items` unnested — one row per line item |
+
+### Analytics API endpoints (in takeoff-agent, management role minimum)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/analytics/summary` | 4 stat card values: awarded YTD, bids processed, top cost code, top vendor win rate |
+| GET | `/analytics/vendor-win-rates?cost_code=` | Per-vendor win rate (awarded/total), min 2 bids, sortable by cost code |
+| GET | `/analytics/coverage` | Awarded count per cost code; `thin_coverage: true` when < 3 awarded |
+| GET | `/analytics/cost-vs-budget` | Project awarded totals vs `total_budget` field on project docs |
+
+All 4 endpoints: BigQuery primary, Firestore fallback if BigQuery unavailable, 5-minute server-side cache.
 
 ---
 
