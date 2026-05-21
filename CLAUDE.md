@@ -25,7 +25,7 @@ Work entirely within the existing monorepo.
 | 2 | Cloud Run Deployment | ✅ Complete |
 | 3 | Bid Generator | ✅ Complete |
 | 4 | Vendor Intelligence | ✅ Complete |
-| 5 | Bid Lifecycle | ⬜ Not started |
+| 5 | Bid Lifecycle | ✅ Complete — live in production |
 | 6 | Analytics & Reporting | ⬜ Not started |
 
 **The takeoff feature is live.** After every change to shared files, verify that the hub page,
@@ -130,21 +130,38 @@ oakleyapps/
 
 ## Authentication Model
 
-All browser requests go through the Next.js proxy at `/api/vendy/[...path]/route.ts`.
+All browser requests go through one of two Next.js proxies:
 
-The proxy:
-1. Validates the Firebase session cookie via Firebase Admin SDK
-2. Extracts `email` and `role` from the decoded token
-3. Forwards to `TAKEOFF_AGENT_URL` with three injected headers
+| Proxy | Upstream service |
+|-------|-----------------|
+| `app/api/vendy/[...path]/route.ts` | `takeoff-agent` Cloud Run (`TAKEOFF_AGENT_URL`) |
+| `app/api/vendy/bids/[...path]/route.ts` | `bid-generator` Cloud Run (`BID_GENERATOR_URL`) |
+
+Both proxies:
+1. Validate the Firebase session cookie via Firebase Admin SDK (returns 401 if missing/invalid)
+2. Extract `email` and `role` from the decoded token
+3. Fetch a **Google OIDC identity token** from the GCE metadata server (production only — `https://` URLs)
+4. Forward to the upstream Cloud Run with four headers
 
 | Header | Value |
 |--------|-------|
+| `Authorization` | `Bearer <Google identity token>` — required by Cloud Run IAM (`--no-allow-unauthenticated`) |
 | `X-User-Email` | Verified user email |
 | `X-User-Role` | `admin` / `management` / `pm` / `staff` |
-| `X-Internal-Secret` | Shared secret — must match `INTERNAL_SERVICE_SECRET` on agent |
+| `X-Internal-Secret` | Shared secret — must match `INTERNAL_SERVICE_SECRET` on the service |
 
-The takeoff-agent trusts these headers directly. Requests missing or failing `X-Internal-Secret` return 401.
+The Cloud Run services trust the `X-*` headers when the internal secret is valid.
 **The Cloud Run URL is never exposed to the browser.**
+
+### Cloud Run IAM requirement
+Both Cloud Run services use `--no-allow-unauthenticated`. The Firebase App Hosting compute SA must have `roles/run.invoker` on **each** service:
+```bash
+gcloud run services add-iam-policy-binding <service-name> \
+  --member="serviceAccount:firebase-app-hosting-compute@oakley-apps.iam.gserviceaccount.com" \
+  --role="roles/run.invoker" \
+  --region=us-central1 --project=oakley-apps
+```
+This is automated in `bid-generator.yml` on every deploy. If a new Cloud Run service is added, add this step to its workflow and run it once manually.
 
 ---
 
@@ -238,10 +255,14 @@ TypeScript: `name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''
   "status": "needs_review",
   "subtotal": 44450.0,
   "generated_at": "<timestamp>",
+  "updated_at": "<timestamp>",
   "generation_notes": "Explanation of pricing sources and gaps...",
   "approved_at": null,
   "approved_by": null,
   "pdf_gcs_path": null,
+  "comms_log": [
+    { "author": "elizabeth@oakleyhomebuilders.com", "timestamp": "<iso>", "body": "Called vendor, confirmed scope." }
+  ],
   "line_items": [
     {
       "description": "Mechanical System base price",
@@ -256,6 +277,14 @@ TypeScript: `name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''
   ]
 }
 ```
+
+**Valid `status` values:** `generating` → `needs_review` → `sent` → `confirmed` → `revised` → `awarded` / `not_awarded` / `rejected`. Also `failed`. Legacy `approved` treated as `sent`.
+
+**Valid transitions** (enforced by `VALID_TRANSITIONS` dict in `services/bid-generator/main.py`):
+- `needs_review` → `sent`
+- `sent` → `confirmed`, `awarded`, `not_awarded`, `rejected`
+- `confirmed` → `revised`, `awarded`, `not_awarded`, `rejected`
+- `revised` → `confirmed`, `awarded`, `not_awarded`, `rejected`
 
 ### apps/vendy/vendors/{slug}/bid_ledger/{bid_id}
 
@@ -334,11 +363,19 @@ Workflows live in `.github/workflows/`. Both services follow the same pattern:
 - Cloud Run config: 2Gi RAM, 2 CPU, 300s timeout, 0–5 instances, `--no-allow-unauthenticated`
 - All secrets (`ANTHROPIC_API_KEY`, `MODEL_VERSION`, `INTERNAL_SERVICE_SECRET`) are mounted from Secret Manager — never in the YAML
 - Auth uses Workload Identity Federation via `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT_EMAIL` GitHub secrets
+- `bid-generator.yml` runs `gcloud run services add-iam-policy-binding` after every deploy to keep the Firebase App Hosting SA's `roles/run.invoker` binding in place
 
 | Workflow | Service | Image |
 |----------|---------|-------|
 | `takeoff-agent.yml` | `takeoff-agent` | `us-central1-docker.pkg.dev/oakley-apps/oakley-apps/takeoff-agent` |
 | `bid-generator.yml` | `bid-generator` | `us-central1-docker.pkg.dev/oakley-apps/oakley-apps/bid-generator` |
+
+### Pre-push checklist for frontend changes
+Firebase App Hosting treats unused TypeScript imports as build errors. Always run before pushing:
+```bash
+pnpm --filter web build
+```
+A clean build must show **zero warnings**. Fix any `'X' is defined but never used` before pushing.
 
 ---
 
@@ -478,12 +515,13 @@ curl http://localhost:8001/health
 | GET | `/jobs/{job_id}` | any | Takeoff job status + data |
 | PATCH | `/jobs/{job_id}/items/{item_id}` | pm | Override takeoff item |
 | POST | `/jobs/{job_id}/approve` | pm | Approve takeoff → writes to `apps/shared/takeoffs` |
-| GET | `/vendors` | any | List vendors (optional `?active=true`) |
-| GET | `/vendors/{slug}` | any | Full vendor profile with price_book |
+| GET | `/vendors` | any | List vendors (optional `?active=true`) — includes `cost_codes` array |
+| GET | `/vendors/{slug}` | any | Full vendor profile with price_book + cost_codes |
 | POST | `/vendors` | management | Create vendor |
-| PATCH | `/vendors/{slug}` | management | Toggle `active` flag |
+| PATCH | `/vendors/{slug}` | management | Update vendor fields (name, email, active) |
+| PUT | `/vendors/{slug}/cost-codes` | management | Replace vendor's cost code list |
 | GET | `/vendors/{slug}/bid-ledger` | any | Paginated bid history (`?page=1&outcome=awarded`) |
-| POST | `/cost-codes` | admin | Create cost code |
+| GET | `/cost-codes` | any | All cost codes with category + vendors array |
 
 ### bid-generator (proxied via `/api/vendy/bids/[...path]`)
 
@@ -495,9 +533,15 @@ curl http://localhost:8001/health
 | GET | `/bids/project/{id}/notes-status` | any | Check if project notes PDF exists in GCS |
 | POST | `/bids/project/{id}/notes` | pm | Upload project notes PDF to GCS |
 | POST | `/bids/project/{id}/generate` | pm | Generate bids (with vendor selection) |
-| GET | `/bids/{bid_id}` | any | Full bid with line items |
-| PATCH | `/bids/{bid_id}/line-items/{idx}` | pm | Override line item qty/price |
-| POST | `/bids/{bid_id}/approve` | pm | Approve bid (status → `approved`) |
+| GET | `/bids/{bid_id}` | any | Full bid with line items + comms_log |
+| PATCH | `/bids/{bid_id}/line-items/{idx}` | pm | Override line item qty/price/notes |
+| POST | `/bids/{bid_id}/send` | pm | Send bid to vendor (needs_review → sent) |
+| POST | `/bids/{bid_id}/confirm` | pm | Mark vendor confirmed (sent → confirmed) |
+| POST | `/bids/{bid_id}/revise` | pm | Mark vendor revised (confirmed → revised) |
+| POST | `/bids/{bid_id}/award` | management | Award bid — cascades others to not_awarded |
+| POST | `/bids/{bid_id}/decline` | management | Decline bid — body: `{"outcome":"not_awarded"\|"rejected"}` |
+| POST | `/bids/{bid_id}/comms-log` | any | Add comms note — body: `{"body":"..."}` |
+| POST | `/bids/{bid_id}/approve` | pm | Legacy — transitions needs_review → sent |
 | GET | `/bids/{bid_id}/pdf` | any | Download bid PDF |
 | GET | `/cost-codes` | any | Biddable cost codes with vendors |
 | POST | `/process/{project_id}` | pm | Manual bid generation trigger |
