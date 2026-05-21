@@ -103,6 +103,7 @@ jobs:
             --min-instances 0 \
             --max-instances 5 \
             --timeout 300 \
+            --no-cpu-throttling \
             --port 8080 \
             --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
             --set-env-vars "GCS_BUCKET=oakley-documents" \
