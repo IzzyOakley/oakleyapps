@@ -1,0 +1,89 @@
+name: Cloud Function — bid_ledger_to_bigquery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/cloud-functions/bid_ledger_to_bigquery/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FUNCTION_NAME: bid_ledger_to_bigquery
+  REGION: us-central1
+  PROJECT: buildertrend-pipeline
+
+jobs:
+  deploy:
+    name: Deploy Cloud Function
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Cloud Function
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --runtime=python311 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --source=services/cloud-functions/bid_ledger_to_bigquery \
+            --entry-point=bid_ledger_to_bigquery \
+            --trigger-http \
+            --allow-unauthenticated=false \
+            --memory=512MB \
+            --timeout=540s \
+            --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
+            --set-env-vars "BQ_PROJECT_ID=buildertrend-pipeline" \
+            --set-env-vars "BQ_DATASET=vendy_analytics" \
+            --set-env-vars "BQ_TABLE=bid_ledger"
+
+      - name: Create or update Cloud Scheduler job
+        run: |
+          # Create the nightly scheduler job (02:00 UTC). Uses --update-if-exists
+          # so re-runs are idempotent.
+          gcloud scheduler jobs describe bid-ledger-export \
+            --project=${{ env.PROJECT }} \
+            --location=${{ env.REGION }} 2>/dev/null && \
+          gcloud scheduler jobs update http bid-ledger-export \
+            --project=${{ env.PROJECT }} \
+            --location=${{ env.REGION }} \
+            --schedule="0 2 * * *" \
+            --time-zone="UTC" \
+            --uri="$(gcloud functions describe ${{ env.FUNCTION_NAME }} --gen2 --region=${{ env.REGION }} --project=${{ env.PROJECT }} --format='value(serviceConfig.uri)')" \
+            --oidc-service-account-email="${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}" \
+            --oidc-token-audience="$(gcloud functions describe ${{ env.FUNCTION_NAME }} --gen2 --region=${{ env.REGION }} --project=${{ env.PROJECT }} --format='value(serviceConfig.uri)')" || \
+          gcloud scheduler jobs create http bid-ledger-export \
+            --project=${{ env.PROJECT }} \
+            --location=${{ env.REGION }} \
+            --schedule="0 2 * * *" \
+            --time-zone="UTC" \
+            --uri="$(gcloud functions describe ${{ env.FUNCTION_NAME }} --gen2 --region=${{ env.REGION }} --project=${{ env.PROJECT }} --format='value(serviceConfig.uri)')" \
+            --oidc-service-account-email="${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}" \
+            --oidc-token-audience="$(gcloud functions describe ${{ env.FUNCTION_NAME }} --gen2 --region=${{ env.REGION }} --project=${{ env.PROJECT }} --format='value(serviceConfig.uri)')"
+
+      - name: Print function URL
+        run: |
+          gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --format="value(serviceConfig.uri)"

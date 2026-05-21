@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).parent / ".env")
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+import analytics as analytics_module
 import firestore_client as fs
 import gcs_client as gcs
 import pubsub_client as ps
@@ -559,6 +560,52 @@ async def update_vendor_cost_codes(
         raise HTTPException(status_code=404, detail="Vendor not found")
     fs.update_vendor_cost_codes(slug, body.cost_codes)
     return {"vendor_id": slug, "cost_codes": body.cost_codes}
+
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+# Accessible to management and admin roles only.
+# Results are cached 5 minutes server-side in analytics.py.
+
+
+@app.get("/analytics/summary")
+async def analytics_summary(user: dict = Depends(require_management)) -> dict:
+    """4 stat card values: total awarded YTD, bids processed, top cost code, top vendor win rate."""
+    try:
+        return analytics_module.get_summary()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/analytics/vendor-win-rates")
+async def analytics_vendor_win_rates(
+    cost_code: str | None = None,
+    user: dict = Depends(require_management),
+) -> list[dict]:
+    """Per-vendor win rate (awarded/total), optionally filtered by cost_code. Min 2 bids."""
+    try:
+        return analytics_module.get_vendor_win_rates(cost_code)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/analytics/coverage")
+async def analytics_coverage(user: dict = Depends(require_management)) -> list[dict]:
+    """Cost code coverage: awarded bid count per cost code, flags thin coverage (< 3)."""
+    try:
+        return analytics_module.get_coverage()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/analytics/cost-vs-budget")
+async def analytics_cost_vs_budget(
+    user: dict = Depends(require_management),
+) -> list[dict]:
+    """Project awarded totals vs budget. Requires total_budget field on project docs."""
+    try:
+        return analytics_module.get_cost_vs_budget()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

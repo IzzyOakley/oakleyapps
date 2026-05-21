@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, RefreshCw, Shield, LogOut, Ruler, FileOutput, Building2 } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, Shield, LogOut, Ruler, FileOutput, Building2, BarChart2 } from 'lucide-react'
 import type { AuthUser, UserRole } from '@/types/auth'
 import type { JSX } from 'react'
 
@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/vendy/bids', label: 'Bids', icon: <FileOutput size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
   { href: '/vendy/vendors', label: 'Vendors', icon: <Building2 size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
   { href: '/margo', label: 'MargO', icon: <RefreshCw size={16} />, roles: ['admin', 'management', 'pm'], group: 'projects' },
+  { href: '/vendy/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, roles: ['admin', 'management'], group: 'management' },
   { href: '/admin', label: 'Admin', icon: <Shield size={16} />, roles: ['admin'], group: 'management' },
 ]
 
