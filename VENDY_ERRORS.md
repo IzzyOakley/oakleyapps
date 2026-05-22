@@ -116,32 +116,34 @@ Alternatively, refactor long-running background jobs to use Cloud Tasks (enqueue
 
 ---
 
-## ERR-004 · Takeoff fails with JSON parse error on large blueprints
+## ERR-004 · Takeoff fails on large blueprints — two-part fix required
 
 **First seen:** 2026-05-22  
-**Status:** ✅ Resolved
+**Status:** ✅ Resolved (two-part fix required)
 
 ### Symptom
-- Takeoff runs for ~5 minutes, badge stays "processing", then disappears
-- Cloud Run logs show only GET poll requests — no error visible
-- Firestore job document shows: `status: "failed"`, `error: "Expecting value: line 1533 column 11 (char 53868)"`
+- Takeoff runs briefly, badge stays "processing", then disappears
+- Cloud Run logs show only GET poll requests — no extraction logs visible
+- Firestore job shows `status: "failed"`
 
-### Root Cause
-`extractor.py` called `client.messages.create()` with `max_tokens=16000`. For large blueprints (e.g. `502_wakeman_halpin`), Claude's JSON response exceeded 16,000 tokens and was silently truncated by the API. `json.loads()` then failed because it received an incomplete JSON object.
+### Part 1 — JSON parse error (`max_tokens` truncation)
+**Error:** `"Expecting value: line 1533 column 11 (char 53868)"`  
+`extractor.py` used `max_tokens=16000`. Large blueprints caused Claude's JSON response to be truncated mid-stream. `json.loads()` then failed on the incomplete JSON.  
+**Fix (commit `32af243`):** Increased `max_tokens` to `32000`.
 
-The failure was invisible in Cloud Run logs because:
+### Part 2 — Streaming required error
+**Error:** `"Streaming is required for operations that may take longer than 10 minutes."`  
+Even at 32,000 tokens, large blueprints cause Claude to estimate > 10 minutes of processing. The Anthropic SDK **blocks non-streaming calls** past this threshold.  
+**Fix (commit `56ea129`):** Switched from `client.messages.create()` to `client.messages.stream()` + `stream.get_final_message()`. Streaming has no time limit. Response structure is identical so all downstream parsing is unchanged.
+
+### Why errors were invisible in logs
 1. The extractor has no `print`/`logging` statements
-2. The outer `_run_extraction` catches and silently discards the re-raised exception (`except Exception: pass`)
-3. The error was only written to Firestore — not surfaced anywhere visible
-
-### Fix Applied
-Commit `32af243`:
-- Increased `max_tokens` from `16000` → `32000` in `extractor.py`
-- Added explicit `stop_reason == "max_tokens"` check before JSON parsing, which raises a clear `ValueError` if the response is still truncated at the new limit
+2. `_run_extraction` silently swallows re-raised exceptions (`except Exception: pass`)
+3. Errors are only written to the Firestore job document — check there first
 
 ### Prevention
+- Always use `client.messages.stream()` for Claude calls that process PDFs
 - Always check `response.stop_reason` before parsing Claude output
-- If blueprints continue to be truncated at 32000 tokens, the next step is to split large PDFs into page ranges and merge the results
-- Add logging to `extractor.py` so extraction progress is visible in Cloud Run logs
+- When diagnosing silent failures, check Firestore `apps/vendy/jobs/{job_id}` → `error` field
 
 ---
