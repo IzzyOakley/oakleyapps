@@ -20,7 +20,7 @@ jobs:
   deploy:
     name: Deploy Cloud Function
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
       id-token: write
@@ -50,10 +50,7 @@ jobs:
             --trigger-http \
             --memory=512MB \
             --timeout=540s \
-            --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
-            --set-env-vars "BQ_PROJECT_ID=buildertrend-pipeline" \
-            --set-env-vars "BQ_DATASET=vendy_analytics" \
-            --set-env-vars "BQ_TABLE=bid_ledger"
+            --set-env-vars=FIREBASE_PROJECT_ID=buildertrend-pipeline,BQ_PROJECT_ID=buildertrend-pipeline,BQ_DATASET=vendy_analytics,BQ_TABLE=bid_ledger
 
       - name: Create or update Cloud Scheduler job
         run: |
