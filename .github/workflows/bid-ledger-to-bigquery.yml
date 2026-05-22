@@ -48,7 +48,6 @@ jobs:
             --source=services/cloud-functions/bid_ledger_to_bigquery \
             --entry-point=bid_ledger_to_bigquery \
             --trigger-http \
-            --no-allow-unauthenticated \
             --memory=512MB \
             --timeout=540s \
             --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
