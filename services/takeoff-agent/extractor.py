@@ -118,7 +118,7 @@ async def run_takeoff(job_id: str, project: dict) -> None:
 
         response = client.messages.create(
             model=MODEL_VERSION,
-            max_tokens=16000,
+            max_tokens=32000,
             system=system_prompt,
             messages=[
                 {
@@ -142,6 +142,12 @@ async def run_takeoff(job_id: str, project: dict) -> None:
         )
 
         # 5. Parse response
+        if response.stop_reason == "max_tokens":
+            raise ValueError(
+                f"Claude response was truncated (hit max_tokens limit). "
+                f"Response was {len(response.content[0].text)} chars. "
+                f"Consider splitting large blueprints or increasing max_tokens further."
+            )
         raw_text = response.content[0].text.strip()
         # Strip markdown fences if Claude added them despite instructions
         if raw_text.startswith("```"):
