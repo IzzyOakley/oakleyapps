@@ -74,3 +74,74 @@ pnpm --filter web build
 If you see any `Warning: '...' is defined but never used`, remove the import before pushing.
 
 ---
+
+## ERR-003 · Takeoff agent runs forever then produces no output
+
+**First seen:** 2026-05-21  
+**Status:** ✅ Resolved
+
+### Symptom
+- User clicks "Run Takeoff" on a project — spinner shows "Processing"
+- Job status stays at `processing` for 10–15 minutes with no progress
+- No takeoff items are ever generated
+- Job eventually silently disappears (badge resets to "none")
+- App Hosting logs show repeated `GET 200` requests to `/api/vendy/projects/{id}` — frontend is polling but job never completes
+
+### Root Cause
+**Cloud Run CPU throttling kills the asyncio background task.**
+
+`POST /projects/{id}/takeoff` fires `asyncio.create_task(_run_extraction(...))` and immediately returns `202 Accepted`. From Cloud Run's perspective, the HTTP request is done. Cloud Run's **default CPU allocation is request-based** — it throttles the instance's CPU to near-zero once no active requests are being handled.
+
+The background task (download PDF from GCS → call Claude API → write results to Firestore) needs CPU to run, but the instance has no CPU allocated. The task is effectively frozen. After 15 minutes the `_derive_takeoff_status` function in `main.py` detects the stale job, marks it `failed`, and the UI resets to "none" — with no error shown to the user.
+
+### What Was Tried That Did Not Work
+Nothing was tried incorrectly — issue was identified directly from code inspection.
+
+### Fix Applied
+Added `--no-cpu-throttling` to the `gcloud run deploy` command in `.github/workflows/takeoff-agent.yml` (commit `f7b22bd`).
+
+```yaml
+gcloud run deploy ${{ env.SERVICE }} \
+  ...
+  --no-cpu-throttling \
+  ...
+```
+
+This keeps CPU allocated for the lifetime of the instance (not just during request handling), allowing `asyncio.create_task` background work to execute normally between requests.
+
+### Prevention
+Any Cloud Run service that uses `asyncio.create_task` (fire-and-forget background work after returning an HTTP response) **must** include `--no-cpu-throttling`. Without it, the background task is starved of CPU the moment the response is sent.
+
+Alternatively, refactor long-running background jobs to use Cloud Tasks (enqueue a new HTTP request) so work is tied to an active request rather than a background coroutine.
+
+---
+
+## ERR-004 · Takeoff fails with JSON parse error on large blueprints
+
+**First seen:** 2026-05-22  
+**Status:** ✅ Resolved
+
+### Symptom
+- Takeoff runs for ~5 minutes, badge stays "processing", then disappears
+- Cloud Run logs show only GET poll requests — no error visible
+- Firestore job document shows: `status: "failed"`, `error: "Expecting value: line 1533 column 11 (char 53868)"`
+
+### Root Cause
+`extractor.py` called `client.messages.create()` with `max_tokens=16000`. For large blueprints (e.g. `502_wakeman_halpin`), Claude's JSON response exceeded 16,000 tokens and was silently truncated by the API. `json.loads()` then failed because it received an incomplete JSON object.
+
+The failure was invisible in Cloud Run logs because:
+1. The extractor has no `print`/`logging` statements
+2. The outer `_run_extraction` catches and silently discards the re-raised exception (`except Exception: pass`)
+3. The error was only written to Firestore — not surfaced anywhere visible
+
+### Fix Applied
+Commit `32af243`:
+- Increased `max_tokens` from `16000` → `32000` in `extractor.py`
+- Added explicit `stop_reason == "max_tokens"` check before JSON parsing, which raises a clear `ValueError` if the response is still truncated at the new limit
+
+### Prevention
+- Always check `response.stop_reason` before parsing Claude output
+- If blueprints continue to be truncated at 32000 tokens, the next step is to split large PDFs into page ranges and merge the results
+- Add logging to `extractor.py` so extraction progress is visible in Cloud Run logs
+
+---
