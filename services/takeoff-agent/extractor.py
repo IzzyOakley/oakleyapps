@@ -116,30 +116,34 @@ async def run_takeoff(job_id: str, project: dict) -> None:
         system_prompt = load_system_prompt(PROMPT_VERSION)
         pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
 
-        response = client.messages.create(
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "Extract the complete quantity takeoff from this blueprint PDF. Return only the JSON object as specified.",
+                    },
+                ],
+            }
+        ]
+
+        # Use streaming to avoid the 10-minute non-streaming timeout on large blueprints
+        with client.messages.stream(
             model=MODEL_VERSION,
             max_tokens=32000,
             system=system_prompt,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": pdf_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "Extract the complete quantity takeoff from this blueprint PDF. Return only the JSON object as specified.",
-                        },
-                    ],
-                }
-            ],
-        )
+            messages=messages,
+        ) as stream:
+            response = stream.get_final_message()
 
         # 5. Parse response
         if response.stop_reason == "max_tokens":
