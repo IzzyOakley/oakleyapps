@@ -18,6 +18,7 @@ import pubsub_client as ps
 from schemas import (
     CreateProjectRequest,
     UpdateItemRequest,
+    UpdateSummaryRequest,
     CreateVendorRequest,
     UpdateVendorRequest,
     CreateCostCodeRequest,
@@ -369,6 +370,21 @@ async def update_item(
         raise HTTPException(status_code=404, detail="Job or item not found")
 
     return {"status": "ok", "job_id": job_id, "item_id": item_id}
+
+
+@app.patch("/jobs/{job_id}/summary")
+async def update_job_summary(
+    job_id: str,
+    body: UpdateSummaryRequest,
+    user: dict = Depends(require_pm),
+) -> dict:
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    updated = fs.update_job_summary(job_id, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "ok", "job_id": job_id}
 
 
 @app.post("/jobs/{job_id}/approve")

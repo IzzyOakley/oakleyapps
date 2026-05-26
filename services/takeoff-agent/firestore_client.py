@@ -247,6 +247,18 @@ def update_item_in_job(
     return True
 
 
+def update_job_summary(job_id: str, updates: dict) -> bool:
+    """Update summary SF fields (first_floor_sf, etc.) inside takeoff_data.summary."""
+    db = get_db()
+    ref = db.collection("apps").document("vendy").collection("jobs").document(job_id)
+    if not ref.get().exists:
+        return False
+    dot_updates = {f"takeoff_data.summary.{k}": v for k, v in updates.items()}
+    dot_updates["updated_at"] = datetime.now(timezone.utc)
+    ref.update(dot_updates)
+    return True
+
+
 # ── Approved Takeoffs ───────────────────────────────────────────────────────
 
 

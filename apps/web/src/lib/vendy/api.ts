@@ -51,6 +51,13 @@ export async function updateItem(jobId: string, itemId: string, data: { pm_overr
   })
 }
 
+export async function updateJobSummary(jobId: string, data: Partial<import('./types').TakeoffSummary>) {
+  return apiFetch<{ status: string }>(`/jobs/${jobId}/summary`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
 export async function approveJob(jobId: string) {
   return apiFetch<{ status: string; project_id: string }>(`/jobs/${jobId}/approve`, { method: 'POST' })
 }

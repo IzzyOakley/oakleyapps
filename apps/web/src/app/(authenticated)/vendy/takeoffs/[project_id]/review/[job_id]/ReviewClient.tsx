@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Lock, Loader2, X, FileOutput } from 'lucide-react'
-import { getJob, getProject, updateItem, approveJob } from '@/lib/vendy/api'
-import type { TakeoffJob, TakeoffSection, TakeoffItem, ProjectDetail } from '@/lib/vendy/types'
+import { getJob, getProject, updateItem, updateJobSummary, approveJob } from '@/lib/vendy/api'
+import type { TakeoffJob, TakeoffSection, TakeoffItem, TakeoffSummary, ProjectDetail } from '@/lib/vendy/types'
 
 interface Props { projectId: string; jobId: string }
 
@@ -171,24 +171,16 @@ export default function ReviewClient({ projectId, jobId }: Props) {
       )}
 
       {/* Summary strip */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
-        {[
-          { label: '1st Floor', value: summary.first_floor_sf },
-          { label: '2nd Floor', value: summary.second_floor_sf },
-          { label: 'Basement', value: summary.basement_sf },
-          { label: 'Garage', value: summary.garage_sf },
-          { label: 'Total FAR', value: summary.total_far },
-          { label: 'Lot Size', value: summary.lot_size_sf },
-        ].map(stat => (
-          <div key={stat.label} className="bg-surface border border-border rounded-xl px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-text-muted">{stat.label}</p>
-            <p className="text-xl font-semibold text-text-primary mt-1">
-              {stat.value != null ? stat.value.toLocaleString() : '—'}
-              {stat.value != null && <span className="text-sm font-normal text-text-muted ml-1">SF</span>}
-            </p>
-          </div>
-        ))}
-      </div>
+      <SummaryStrip
+        summary={summary}
+        jobId={jobId}
+        isApproved={isApproved}
+        onUpdate={(updates) => {
+          setJob(prev => prev?.takeoff_data
+            ? { ...prev, takeoff_data: { ...prev.takeoff_data, summary: { ...prev.takeoff_data.summary, ...updates } } }
+            : prev)
+        }}
+      />
 
       {/* Flagged banner */}
       {remainingFlags > 0 && !bannerDismissed && (
@@ -242,6 +234,112 @@ export default function ReviewClient({ projectId, jobId }: Props) {
           loading={approving}
           error={approveError}
         />
+      )}
+    </div>
+  )
+}
+
+function SummaryStrip({ summary, jobId, isApproved, onUpdate }: {
+  summary: TakeoffSummary
+  jobId: string
+  isApproved: boolean
+  onUpdate: (updates: Partial<TakeoffSummary>) => void
+}) {
+  const stats: { label: string; field: keyof TakeoffSummary }[] = [
+    { label: '1st Floor', field: 'first_floor_sf' },
+    { label: '2nd Floor', field: 'second_floor_sf' },
+    { label: 'Basement', field: 'basement_sf' },
+    { label: 'Garage', field: 'garage_sf' },
+    { label: 'Total FAR', field: 'total_far' },
+    { label: 'Lot Size', field: 'lot_size_sf' },
+  ]
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
+      {stats.map(({ label, field }) => (
+        <SummaryCard
+          key={field}
+          label={label}
+          field={field}
+          value={summary[field] as number | null}
+          jobId={jobId}
+          isApproved={isApproved}
+          onSaved={(val) => onUpdate({ [field]: val })}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SummaryCard({ label, field, value, jobId, isApproved, onSaved }: {
+  label: string
+  field: keyof TakeoffSummary
+  value: number | null
+  jobId: string
+  isApproved: boolean
+  onSaved: (val: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit() {
+    if (isApproved) return
+    setDraft(value != null ? String(value) : '')
+    setEditing(true)
+    setTimeout(() => inputRef.current?.select(), 0)
+  }
+
+  async function commit() {
+    const parsed = draft.trim() === '' ? null : parseFloat(draft.replace(/,/g, ''))
+    if (isNaN(parsed as number) && parsed !== null) { setEditing(false); return }
+    if (parsed === value) { setEditing(false); return }
+    setSaving(true)
+    try {
+      await updateJobSummary(jobId, { [field]: parsed })
+      onSaved(parsed)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') commit()
+    if (e.key === 'Escape') setEditing(false)
+  }
+
+  return (
+    <div
+      onClick={!editing && !isApproved ? startEdit : undefined}
+      className={`bg-surface border rounded-xl px-4 py-3 transition-colors ${
+        !isApproved ? 'cursor-pointer hover:border-primary/50 hover:bg-surface-raised/40 group' : ''
+      } ${editing ? 'border-primary ring-1 ring-primary/30' : 'border-border'}`}
+    >
+      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">{label}</p>
+      {editing ? (
+        <div className="flex items-baseline gap-1 mt-1">
+          <input
+            ref={inputRef}
+            type="number"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={handleKeyDown}
+            className="w-full bg-transparent text-xl font-semibold text-text-primary focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            autoFocus
+          />
+          <span className="text-sm font-normal text-text-muted shrink-0">SF</span>
+        </div>
+      ) : (
+        <p className="text-xl font-semibold text-text-primary mt-1 flex items-baseline gap-1">
+          {saving
+            ? <Loader2 size={16} className="animate-spin text-text-muted" />
+            : value != null ? value.toLocaleString() : <span className="text-text-muted text-base">—</span>
+          }
+          {value != null && !saving && <span className="text-sm font-normal text-text-muted">SF</span>}
+          {!isApproved && !saving && <span className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity ml-1">edit</span>}
+        </p>
       )}
     </div>
   )

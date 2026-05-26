@@ -48,6 +48,15 @@ class UpdateItemRequest(BaseModel):
     status: str  # "confirmed" | "overridden"
 
 
+class UpdateSummaryRequest(BaseModel):
+    first_floor_sf: Optional[float] = None
+    second_floor_sf: Optional[float] = None
+    basement_sf: Optional[float] = None
+    garage_sf: Optional[float] = None
+    total_far: Optional[float] = None
+    lot_size_sf: Optional[float] = None
+
+
 class ProjectResponse(BaseModel):
     project_id: str
     job_name: str
