@@ -48,7 +48,9 @@ class TestGetContractSignedProjects:
                 },
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_contract_signed_projects()
 
@@ -65,7 +67,9 @@ class TestGetContractSignedProjects:
                 {"id": "rec002", "fields": {"Job Name": "Valid Project"}},
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_contract_signed_projects()
 
@@ -80,7 +84,10 @@ class TestGetContractSignedProjects:
         page2 = {
             "records": [{"id": "rec002", "fields": {"Job Name": "Project B"}}],
         }
-        with patch("airtable_client.requests.get", side_effect=[_mock_response(page1), _mock_response(page2)]):
+        with patch(
+            "airtable_client.requests.get",
+            side_effect=[_mock_response(page1), _mock_response(page2)],
+        ):
             client = AirtableClient()
             result = client.get_contract_signed_projects()
 
@@ -91,28 +98,37 @@ class TestGetContractSignedProjects:
     def test_raises_503_on_connection_error(self):
         import requests as req_lib
 
-        with patch("airtable_client.requests.get", side_effect=req_lib.exceptions.ConnectionError("refused")):
+        with patch(
+            "airtable_client.requests.get",
+            side_effect=req_lib.exceptions.ConnectionError("refused"),
+        ):
             client = AirtableClient()
             with pytest.raises(HTTPException) as exc_info:
                 client.get_contract_signed_projects()
             assert exc_info.value.status_code == 503
 
     def test_raises_503_on_api_error(self):
-        with patch("airtable_client.requests.get", return_value=_mock_response({}, status=503)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response({}, status=503)
+        ):
             client = AirtableClient()
             with pytest.raises(HTTPException) as exc_info:
                 client.get_contract_signed_projects()
             assert exc_info.value.status_code == 503
 
     def test_raises_401_on_invalid_token(self):
-        with patch("airtable_client.requests.get", return_value=_mock_response({}, status=401)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response({}, status=401)
+        ):
             client = AirtableClient()
             with pytest.raises(HTTPException) as exc_info:
                 client.get_contract_signed_projects()
             assert exc_info.value.status_code == 401
 
     def test_raises_503_on_rate_limit(self):
-        with patch("airtable_client.requests.get", return_value=_mock_response({}, status=429)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response({}, status=429)
+        ):
             client = AirtableClient()
             with pytest.raises(HTTPException) as exc_info:
                 client.get_contract_signed_projects()
@@ -127,7 +143,9 @@ class TestGetEstimateLines:
                 {"id": "el002", "fields": {"Cost Code": "3700", "Final Cost": 44450.0}},
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_estimate_lines("rec001")
 
@@ -143,7 +161,9 @@ class TestGetEstimateLines:
                 {"id": "el003", "fields": {}},
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_estimate_lines("rec001")
 
@@ -156,7 +176,9 @@ class TestGetEstimateLines:
                 {"id": "el001", "fields": {"Cost Code": "3800"}},
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_estimate_lines("rec001")
 
@@ -168,7 +190,9 @@ class TestGetEstimateLines:
                 {"id": "el001", "fields": {"Cost Code": "3600", "Final Cost": "N/A"}},
             ]
         }
-        with patch("airtable_client.requests.get", return_value=_mock_response(records)):
+        with patch(
+            "airtable_client.requests.get", return_value=_mock_response(records)
+        ):
             client = AirtableClient()
             result = client.get_estimate_lines("rec001")
 

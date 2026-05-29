@@ -42,7 +42,12 @@ def _scan_project_folders() -> list[GCSProject]:
     folder_names = [p.rstrip("/").split("/", 1)[1] for p in (top_blobs.prefixes or [])]
 
     folder_info: dict[str, dict] = {
-        f: {"has_dxf": False, "has_pdf": False, "has_estimate_pdf": False, "last_modified": None}
+        f: {
+            "has_dxf": False,
+            "has_pdf": False,
+            "has_estimate_pdf": False,
+            "last_modified": None,
+        }
         for f in folder_names
     }
 
@@ -62,7 +67,11 @@ def _scan_project_folders() -> list[GCSProject]:
             folder_info[folder]["has_estimate_pdf"] = True
         last_mod = blob.updated
         if last_mod:
-            ts = last_mod.isoformat() if hasattr(last_mod, "isoformat") else str(last_mod)
+            ts = (
+                last_mod.isoformat()
+                if hasattr(last_mod, "isoformat")
+                else str(last_mod)
+            )
             existing = folder_info[folder]["last_modified"]
             if existing is None or ts > existing:
                 folder_info[folder]["last_modified"] = ts

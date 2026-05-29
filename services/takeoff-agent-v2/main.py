@@ -48,7 +48,9 @@ async def get_current_user(
     x_internal_secret: str = Header(default=""),
 ) -> dict:
     if x_internal_secret != INTERNAL_SERVICE_SECRET:
-        raise HTTPException(status_code=401, detail="Unauthorized — missing internal secret")
+        raise HTTPException(
+            status_code=401, detail="Unauthorized — missing internal secret"
+        )
     if not x_user_email:
         raise HTTPException(status_code=401, detail="Unauthorized — no user identity")
     return {"email": x_user_email, "role": x_user_role}
@@ -56,13 +58,17 @@ async def get_current_user(
 
 async def require_pm(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role", "staff") not in PM_ROLES:
-        raise HTTPException(status_code=403, detail="Forbidden — PM or admin role required")
+        raise HTTPException(
+            status_code=403, detail="Forbidden — PM or admin role required"
+        )
     return user
 
 
 async def require_management(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role", "staff") not in {"admin", "management"}:
-        raise HTTPException(status_code=403, detail="Forbidden — management or admin role required")
+        raise HTTPException(
+            status_code=403, detail="Forbidden — management or admin role required"
+        )
     return user
 
 
@@ -84,7 +90,9 @@ def health():
 
 
 @app.get("/v2/airtable/projects", response_model=list[AirtableProject])
-async def list_airtable_projects(user: dict = Depends(require_pm)) -> list[AirtableProject]:
+async def list_airtable_projects(
+    user: dict = Depends(require_pm),
+) -> list[AirtableProject]:
     """
     Return Contract Signed projects from Airtable, excluding any already in Vendy.
     Also returns estimate_line_count so the UI can show the PM how many cost codes

@@ -78,7 +78,9 @@ class V2CostCodeDoc(BaseModel):
     is_profit_item: bool = False
     agent_type: str
     estimate_final_cost: Optional[float] = None
-    agent_status: str = "pending"  # pending | running | complete | failed | manual_required | skipped
+    agent_status: str = (
+        "pending"  # pending | running | complete | failed | manual_required | skipped
+    )
     agent_run_id: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None

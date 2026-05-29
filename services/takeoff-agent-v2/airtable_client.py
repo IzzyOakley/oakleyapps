@@ -14,7 +14,9 @@ class AirtableClient:
     def __init__(self) -> None:
         token = os.environ.get("AIRTABLE_API_TOKEN")
         if not token:
-            raise HTTPException(status_code=503, detail="AIRTABLE_API_TOKEN not configured")
+            raise HTTPException(
+                status_code=503, detail="AIRTABLE_API_TOKEN not configured"
+            )
         self._headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -32,16 +34,26 @@ class AirtableClient:
                 req_params["offset"] = offset
 
             try:
-                resp = requests.get(url, headers=self._headers, params=req_params, timeout=15)
+                resp = requests.get(
+                    url, headers=self._headers, params=req_params, timeout=15
+                )
             except requests.exceptions.ConnectionError as exc:
-                raise HTTPException(status_code=503, detail=f"Airtable unreachable: {exc}") from exc
+                raise HTTPException(
+                    status_code=503, detail=f"Airtable unreachable: {exc}"
+                ) from exc
             except requests.exceptions.Timeout as exc:
-                raise HTTPException(status_code=503, detail="Airtable request timed out") from exc
+                raise HTTPException(
+                    status_code=503, detail="Airtable request timed out"
+                ) from exc
 
             if resp.status_code == 401:
-                raise HTTPException(status_code=401, detail="Airtable API token is invalid or expired")
+                raise HTTPException(
+                    status_code=401, detail="Airtable API token is invalid or expired"
+                )
             if resp.status_code == 429:
-                raise HTTPException(status_code=503, detail="Airtable rate limit exceeded — retry later")
+                raise HTTPException(
+                    status_code=503, detail="Airtable rate limit exceeded — retry later"
+                )
             if not resp.ok:
                 raise HTTPException(
                     status_code=503,
