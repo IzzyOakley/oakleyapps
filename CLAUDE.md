@@ -33,6 +33,7 @@ Work entirely within the existing monorepo.
 | 10 | SF-Formula & Historical-Avg Agents | ✅ Complete |
 | 11 | DXF-Count & DXF-Area Agents | ✅ Complete |
 | 12 | DXF-Geometry & Project-Flag Agents | ✅ Complete |
+| 13 | Validation Agent & Run All | ✅ Complete |
 
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
@@ -102,9 +103,12 @@ oakleyapps/
 │   │   ├── dxf_count.py                     # DXFCountAgent — INSERT entity counter (Phase 11)
 │   │   ├── dxf_area.py                      # DXFAreaAgent — LWPOLYLINE/HATCH area accumulator (Phase 11)
 │   │   ├── dxf_geometry.py                  # DXFGeometryAgent — perimeter/roof/wall/eave geometry (Phase 12)
-│   │   └── project_flag.py                  # ProjectFlagAgent — optional feature detection via Claude (Phase 12)
+│   │   ├── project_flag.py                  # ProjectFlagAgent — optional feature detection via Claude (Phase 12)
+│   │   └── validation.py                    # ValidationAgent — variance analysis + Claude summary (Phase 13)
+│   ├── pubsub_client.py                     # Pub/Sub publisher for takeoff-events-v2 (Phase 13)
 │   ├── prompts/
-│   │   └── project_flag_v1.md              # System prompt for ProjectFlagAgent Claude calls
+│   │   ├── project_flag_v1.md              # System prompt for ProjectFlagAgent Claude calls
+│   │   └── validation_v1.md                # System prompt for ValidationAgent Claude summary (Phase 13)
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── start-dev.sh                         # Port 8003
@@ -117,7 +121,10 @@ oakleyapps/
 │       ├── test_run_agent.py                # POST /v2/.../run/{cost_code} endpoint
 │       ├── test_dxf_agents.py              # DXFCountAgent, DXFAreaAgent (Phase 11)
 │       ├── test_dxf_geometry.py            # DXFGeometryAgent (Phase 12)
-│       └── test_project_flag.py            # ProjectFlagAgent (Phase 12)
+│       ├── test_project_flag.py            # ProjectFlagAgent (Phase 12)
+│       ├── test_run_all.py                 # POST /run-all + _run_all_background (Phase 13)
+│       ├── test_validation.py              # ValidationAgent variance analysis (Phase 13)
+│       └── test_approve.py                 # POST /approve endpoint (Phase 13)
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here

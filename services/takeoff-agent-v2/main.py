@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import time
@@ -9,13 +10,15 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 import firestore_client as fs
 import gcs_client as gcs
+import pubsub_client
 from agent_registry import AGENT_REGISTRY
 from agents import get_agent
+from agents.validation import ValidationAgent
 from airtable_client import AirtableClient
 from dxf_processor import DXFProcessor
 from estimate_parser import EstimateParseError, EstimateParser
@@ -495,6 +498,98 @@ async def preprocess_project(
     }
 
 
+# ── Agent execution helper ────────────────────────────────────────────────────
+
+
+def _execute_agent_sync(
+    project_id: str,
+    cost_code: str,
+    shared_params: SharedParams,
+    price_book_data: dict,
+    dxf_local_path: str | None,
+    triggered_by: str,
+) -> tuple[str, dict, str]:
+    """
+    Run a single agent synchronously, save output to Firestore, log run.
+
+    Caller is responsible for any DXF download/cleanup.
+    Returns (agent_status, output_dict, run_id).
+    """
+    registry_entry = AGENT_REGISTRY.get(cost_code, {})
+    agent_type_name: str = registry_entry.get("agent_type", "unknown")
+
+    agent = get_agent(cost_code)
+    started_at = datetime.now(timezone.utc)
+    t0 = time.monotonic()
+
+    try:
+        result = agent.run(
+            shared_params, price_book_data, dxf_local_path=dxf_local_path
+        )
+    except Exception as exc:
+        run_id = fs.log_run(
+            {
+                "project_id": project_id,
+                "cost_code": cost_code,
+                "run_type": "agent_run",
+                "agent_type": agent_type_name,
+                "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc),
+                "duration_ms": round((time.monotonic() - t0) * 1000),
+                "status": "failed",
+                "error": str(exc),
+                "triggered_by": triggered_by,
+            }
+        )
+        fs.save_agent_output(project_id, cost_code, {}, run_id, "failed")
+        return "failed", {}, run_id
+
+    completed_at = datetime.now(timezone.utc)
+    duration_ms = round((time.monotonic() - t0) * 1000)
+    output_dict = result.model_dump()
+
+    # Resolve agent_status from result signals.
+    flags_str = " ".join(result.flags)
+    if result.source == "manual":
+        agent_status = "manual_required"
+    elif result.source == "skip":
+        agent_status = "skipped"
+    elif (
+        "formula_eval_error" in flags_str
+        or "agent_type_not_implemented" in flags_str
+        or "dxf_required_but_not_present" in flags_str
+    ):
+        agent_status = "failed"
+    else:
+        agent_status = "complete"
+
+    log_entry: dict = {
+        "project_id": project_id,
+        "cost_code": cost_code,
+        "run_type": "agent_run",
+        "agent_type": agent_type_name,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "duration_ms": duration_ms,
+        "status": "complete",
+        "agent_status": agent_status,
+        "confidence": result.confidence,
+        "source": result.source,
+        "flags": result.flags,
+        "triggered_by": triggered_by,
+    }
+    # project_flag agents call Claude — log token usage for audit.
+    if result.source == "project_flag" and result.output:
+        log_entry["uses_claude"] = True
+        log_entry["input_tokens"] = result.output.get("input_tokens")
+        log_entry["output_tokens"] = result.output.get("output_tokens")
+        log_entry["model"] = result.output.get("model")
+
+    run_id = fs.log_run(log_entry)
+    fs.save_agent_output(project_id, cost_code, output_dict, run_id, agent_status)
+    return agent_status, output_dict, run_id
+
+
 # ── POST /v2/projects/{project_id}/run/{cost_code} (10.3) ────────────────────
 
 
@@ -642,79 +737,20 @@ async def run_agent(
             }
 
     # ── Run the agent ─────────────────────────────────────────────────────────
-    agent = get_agent(cost_code)
-    started_at = datetime.now(timezone.utc)
-    t0 = time.monotonic()
-
     try:
-        result = agent.run(
-            shared_params, price_book_data, dxf_local_path=dxf_local_path
+        agent_status, output_dict, run_id = _execute_agent_sync(
+            project_id=project_id,
+            cost_code=cost_code,
+            shared_params=shared_params,
+            price_book_data=price_book_data,
+            dxf_local_path=dxf_local_path,
+            triggered_by=user["email"],
         )
     except Exception as exc:
-        run_id = fs.log_run(
-            {
-                "project_id": project_id,
-                "cost_code": cost_code,
-                "run_type": "agent_run",
-                "agent_type": agent_type_name,
-                "started_at": started_at,
-                "completed_at": datetime.now(timezone.utc),
-                "duration_ms": round((time.monotonic() - t0) * 1000),
-                "status": "failed",
-                "error": str(exc),
-                "triggered_by": user["email"],
-            }
-        )
-        fs.save_agent_output(project_id, cost_code, {}, run_id, "failed")
         raise HTTPException(status_code=500, detail=f"Agent run failed: {exc}") from exc
     finally:
         if tmp_dxf and os.path.exists(tmp_dxf):
             os.unlink(tmp_dxf)
-
-    completed_at = datetime.now(timezone.utc)
-    duration_ms = round((time.monotonic() - t0) * 1000)
-    output_dict = result.model_dump()
-
-    # Resolve agent_status from result signals.
-    flags_str = " ".join(result.flags)
-    if result.source == "manual":
-        agent_status = "manual_required"
-    elif result.source == "skip":
-        agent_status = "skipped"
-    elif (
-        "formula_eval_error" in flags_str
-        or "agent_type_not_implemented" in flags_str
-        or "dxf_required_but_not_present" in flags_str
-    ):
-        agent_status = "failed"
-    else:
-        agent_status = "complete"
-
-    log_entry: dict = {
-        "project_id": project_id,
-        "cost_code": cost_code,
-        "run_type": "agent_run",
-        "agent_type": agent_type_name,
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "duration_ms": duration_ms,
-        "status": "complete",
-        "agent_status": agent_status,
-        "confidence": result.confidence,
-        "source": result.source,
-        "flags": result.flags,
-        "triggered_by": user["email"],
-    }
-    # project_flag agents call Claude — log token usage for audit.
-    if result.source == "project_flag" and result.output:
-        log_entry["uses_claude"] = True
-        log_entry["input_tokens"] = result.output.get("input_tokens")
-        log_entry["output_tokens"] = result.output.get("output_tokens")
-        log_entry["model"] = result.output.get("model")
-
-    run_id = fs.log_run(log_entry)
-
-    fs.save_agent_output(project_id, cost_code, output_dict, run_id, agent_status)
 
     return {
         "project_id": project_id,
@@ -722,4 +758,278 @@ async def run_agent(
         "agent_status": agent_status,
         "run_id": run_id,
         "agent_output": output_dict,
+    }
+
+
+# ── Background task for run-all ───────────────────────────────────────────────
+
+
+async def _run_all_background(project_id: str, triggered_by: str) -> None:
+    """
+    Run all agents for a project in parallel (max 10 concurrent).
+
+    Steps:
+      1. Mark project in_progress.
+      2. Build shared context (params, price books, DXF download if needed).
+      3. Run all cost_code agents in parallel under asyncio.Semaphore(10).
+      4. Mark project complete.
+      5. Run ValidationAgent and save report.
+    """
+    await asyncio.to_thread(fs.update_v2_project_status, project_id, "in_progress")
+
+    project = await asyncio.to_thread(fs.get_v2_project, project_id)
+    if project is None:
+        return  # project deleted between request and background start
+
+    # ── SharedParams ──────────────────────────────────────────────────────────
+    shared_params_data = await asyncio.to_thread(fs.get_shared_params, project_id) or {}
+    shared_params_fields = set(SharedParams.model_fields.keys())
+    filtered = {k: v for k, v in shared_params_data.items() if k in shared_params_fields}
+    shared_params = SharedParams(**filtered)
+
+    cost_code_docs = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
+    all_price_books = await asyncio.to_thread(fs.get_vendor_price_books)
+
+    # ── DXF: download once for all requires_dxf agents ───────────────────────
+    dxf_local_path: str | None = None
+    tmp_dxf: str | None = None
+
+    needs_dxf = any(
+        AGENT_REGISTRY.get(doc.get("cost_code", ""), {}).get("requires_dxf", False)
+        for doc in cost_code_docs
+    )
+
+    if needs_dxf:
+        dxf_gcs_path: str | None = project.get("dxf_gcs_path")
+        if not dxf_gcs_path:
+            dxf_info = await asyncio.to_thread(
+                gcs.check_dxf_present, project.get("job_name", project_id)
+            )
+            dxf_gcs_path = dxf_info.get("dxf_gcs_path")
+
+        if dxf_gcs_path:
+            try:
+                tmp_dxf = await asyncio.to_thread(gcs.download_dxf_to_temp, dxf_gcs_path)
+                dxf_local_path = tmp_dxf
+            except Exception:
+                dxf_local_path = None  # agents will each report no_dxf_path / dxf_read_error
+
+    # ── Parallel agent execution ──────────────────────────────────────────────
+    semaphore = asyncio.Semaphore(10)
+
+    async def _run_one(doc: dict) -> None:
+        code = doc.get("cost_code", "")
+        if not code:
+            return
+        reg = AGENT_REGISTRY.get(code, {})
+        requires_dxf = reg.get("requires_dxf", False)
+        agent_type = reg.get("agent_type", "unknown")
+
+        # Filter price books for this code if needed by agent type
+        pb_data: dict = {}
+        if agent_type == "historical_avg":
+            pb_data = {
+                vid: pb
+                for vid, pb in all_price_books.items()
+                if code in pb.get("categories", {})
+            }
+
+        effective_dxf = dxf_local_path if requires_dxf else None
+
+        async with semaphore:
+            await asyncio.to_thread(
+                _execute_agent_sync,
+                project_id,
+                code,
+                shared_params,
+                pb_data,
+                effective_dxf,
+                triggered_by,
+            )
+
+    try:
+        await asyncio.gather(*[_run_one(doc) for doc in cost_code_docs])
+    finally:
+        if tmp_dxf and os.path.exists(tmp_dxf):
+            os.unlink(tmp_dxf)
+
+    # ── Mark complete ─────────────────────────────────────────────────────────
+    await asyncio.to_thread(fs.update_v2_project_status, project_id, "complete")
+
+    # ── Validation (non-fatal) ────────────────────────────────────────────────
+    try:
+        updated_docs = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
+        job_name = project.get("job_name", project_id)
+        report = await asyncio.to_thread(
+            ValidationAgent().run,
+            project_id,
+            job_name,
+            updated_docs,
+            all_price_books,
+        )
+        validation_status = report.get("validation_status", "complete")
+        # Log validation run for Claude audit trail
+        if report.get("input_tokens") is not None:
+            await asyncio.to_thread(
+                fs.log_run,
+                {
+                    "project_id": project_id,
+                    "run_type": "validation",
+                    "uses_claude": True,
+                    "model": report.get("model"),
+                    "input_tokens": report.get("input_tokens"),
+                    "output_tokens": report.get("output_tokens"),
+                    "duration_ms": report.get("duration_ms"),
+                    "status": "complete",
+                    "triggered_by": triggered_by,
+                    "started_at": datetime.now(timezone.utc),
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
+        await asyncio.to_thread(
+            fs.save_validation_report, project_id, report, validation_status
+        )
+    except Exception:
+        pass  # validation failure is non-fatal — project is still complete
+
+
+# ── POST /v2/projects/{project_id}/run-all (13.1) ────────────────────────────
+
+
+@app.post("/v2/projects/{project_id}/run-all", status_code=202)
+async def run_all_agents(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Kick off a background run of ALL agents for a project.
+
+    Returns 202 immediately.  Agents run in parallel (max 10 concurrent) in a
+    background task.  Poll GET /v2/projects/{project_id} for status updates:
+      in_progress  — agents running
+      complete     — all agents finished; validation report available
+
+    Returns 404 if project not found.
+    Returns 409 if project is locked.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+
+    if project.get("locked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' is locked — unlock it before running agents.",
+        )
+
+    background_tasks.add_task(_run_all_background, project_id, user["email"])
+
+    return {
+        "project_id": project_id,
+        "status": "accepted",
+        "message": "All agents queued. Poll project status for completion.",
+    }
+
+
+# ── POST /v2/projects/{project_id}/approve (13.3) ────────────────────────────
+
+
+@app.post("/v2/projects/{project_id}/approve")
+async def approve_project(
+    project_id: str,
+    user: dict = Depends(require_management),
+) -> dict:
+    """
+    Approve a completed takeoff.
+
+    Builds a snapshot of all cost codes, writes it to apps/shared/takeoffs/{project_id},
+    locks the project, and publishes a takeoff_approved event to takeoff-events-v2.
+
+    Returns 404 if project not found.
+    Returns 409 if project is already locked (already approved).
+    Returns 422 if project has no cost_code docs (run-all must complete first).
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+
+    if project.get("locked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' is already approved and locked.",
+        )
+
+    cc_docs = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
+    if not cc_docs:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Project '{project_id}' has no cost code documents. "
+                "Run agents before approving."
+            ),
+        )
+
+    approved_at = datetime.now(timezone.utc)
+
+    snapshot: dict = {
+        "project_id": project_id,
+        "job_name": project.get("job_name", ""),
+        "address": project.get("address", ""),
+        "schema_version": "v2",
+        "status": "approved",
+        "approved_by": user["email"],
+        "approved_at": approved_at,
+        "dxf_gcs_path": project.get("dxf_gcs_path"),
+        "estimate_pdf_gcs_path": project.get("estimate_pdf_gcs_path"),
+        "validation_report": project.get("validation_report"),
+        "cost_codes": [
+            {
+                "cost_code": doc.get("cost_code"),
+                "cost_code_name": doc.get("cost_code_name"),
+                "category": doc.get("category"),
+                "agent_status": doc.get("agent_status"),
+                "quantity": doc.get("quantity"),
+                "unit": doc.get("unit"),
+                "estimate_final_cost": doc.get("estimate_final_cost"),
+                "source": doc.get("source"),
+                "confidence": doc.get("confidence"),
+                "flags": doc.get("flags", []),
+            }
+            for doc in cc_docs
+        ],
+    }
+
+    # Save snapshot to apps/shared/takeoffs/{project_id}
+    await asyncio.to_thread(fs.save_takeoff_snapshot, project_id, snapshot)
+
+    # Lock the project
+    await asyncio.to_thread(fs.lock_v2_project, project_id, user["email"])
+
+    # Publish Pub/Sub event — non-fatal
+    pubsub_message_id: str | None = None
+    pubsub_error: str | None = None
+    try:
+        pubsub_message_id = await asyncio.to_thread(
+            pubsub_client.publish_takeoff_approved,
+            project_id,
+            {
+                "job_name": project.get("job_name", ""),
+                "approved_by": user["email"],
+            },
+        )
+    except Exception as exc:
+        pubsub_error = str(exc)
+
+    return {
+        "project_id": project_id,
+        "status": "approved",
+        "approved_by": user["email"],
+        "pubsub_message_id": pubsub_message_id,
+        "pubsub_error": pubsub_error,
+        "snapshot": snapshot,
     }

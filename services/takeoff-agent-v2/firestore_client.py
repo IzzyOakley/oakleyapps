@@ -301,3 +301,90 @@ def save_agent_output(
     )
 
     batch.commit()
+
+
+# ── Phase 13 helpers ──────────────────────────────────────────────────────────
+
+
+def get_all_cost_code_docs(project_id: str) -> list[dict]:
+    """Return all cost_codes sub-documents for a v2 project as a list of dicts."""
+    db = get_db()
+    docs = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("cost_codes")
+        .stream()
+    )
+    return [d.to_dict() for d in docs if d.to_dict()]
+
+
+def update_v2_project_status(project_id: str, status: str) -> None:
+    """Update the status and updated_at fields on a v2_jobs document."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .update({"status": status, "updated_at": now})
+    )
+
+
+def save_validation_report(
+    project_id: str,
+    report: dict,
+    validation_status: str,
+) -> None:
+    """Write validation_report + validation_status to the v2_jobs document."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .update(
+            {
+                "validation_status": validation_status,
+                "validation_report": report,
+                "updated_at": now,
+            }
+        )
+    )
+
+
+def save_takeoff_snapshot(project_id: str, snapshot: dict) -> None:
+    """Write a takeoff snapshot to apps/shared/takeoffs/{project_id}."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    (
+        db.collection("apps")
+        .document("shared")
+        .collection("takeoffs")
+        .document(project_id)
+        .set({**snapshot, "saved_at": now})
+    )
+
+
+def lock_v2_project(project_id: str, locked_by: str) -> None:
+    """Lock a v2 project — sets locked=True, status=locked, locked_at, locked_by."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .update(
+            {
+                "locked": True,
+                "locked_at": now,
+                "locked_by": locked_by,
+                "status": "locked",
+                "updated_at": now,
+            }
+        )
+    )
