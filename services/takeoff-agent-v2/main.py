@@ -690,23 +690,29 @@ async def run_agent(
     else:
         agent_status = "complete"
 
-    run_id = fs.log_run(
-        {
-            "project_id": project_id,
-            "cost_code": cost_code,
-            "run_type": "agent_run",
-            "agent_type": agent_type_name,
-            "started_at": started_at,
-            "completed_at": completed_at,
-            "duration_ms": duration_ms,
-            "status": "complete",
-            "agent_status": agent_status,
-            "confidence": result.confidence,
-            "source": result.source,
-            "flags": result.flags,
-            "triggered_by": user["email"],
-        }
-    )
+    log_entry: dict = {
+        "project_id": project_id,
+        "cost_code": cost_code,
+        "run_type": "agent_run",
+        "agent_type": agent_type_name,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "duration_ms": duration_ms,
+        "status": "complete",
+        "agent_status": agent_status,
+        "confidence": result.confidence,
+        "source": result.source,
+        "flags": result.flags,
+        "triggered_by": user["email"],
+    }
+    # project_flag agents call Claude — log token usage for audit.
+    if result.source == "project_flag" and result.output:
+        log_entry["uses_claude"] = True
+        log_entry["input_tokens"] = result.output.get("input_tokens")
+        log_entry["output_tokens"] = result.output.get("output_tokens")
+        log_entry["model"] = result.output.get("model")
+
+    run_id = fs.log_run(log_entry)
 
     fs.save_agent_output(project_id, cost_code, output_dict, run_id, agent_status)
 

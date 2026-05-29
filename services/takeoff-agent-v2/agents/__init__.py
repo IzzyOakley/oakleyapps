@@ -12,12 +12,12 @@ sf_formula      → SFFormulaAgent
 historical_avg  → HistoricalAvgAgent
 manual_hold     → ManualHoldAgent
 skip            → SkipAgent
-dxf_count       → DXFCountAgent     (Phase 11)
-dxf_area        → DXFAreaAgent      (Phase 11)
+dxf_count       → DXFCountAgent      (Phase 11)
+dxf_area        → DXFAreaAgent       (Phase 11)
+dxf_geometry    → DXFGeometryAgent   (Phase 12)
+project_flag    → ProjectFlagAgent   (Phase 12)
 
-Not yet implemented (Phase 12) — returns UnimplementedAgent
-------------------------------------------------------------
-dxf_geometry | project_flag
+Unknown types fall back to UnimplementedAgent (future phases).
 """
 
 from __future__ import annotations
@@ -26,7 +26,9 @@ from agent_registry import AGENT_REGISTRY
 from agents.base import BaseAgent, ManualHoldAgent, SkipAgent, UnimplementedAgent
 from agents.dxf_area import DXFAreaAgent
 from agents.dxf_count import DXFCountAgent
+from agents.dxf_geometry import DXFGeometryAgent
 from agents.historical_avg import HistoricalAvgAgent
+from agents.project_flag import ProjectFlagAgent
 from agents.sf_formula import SFFormulaAgent
 
 _IMPLEMENTED_TYPES: dict[str, type[BaseAgent]] = {
@@ -36,9 +38,13 @@ _IMPLEMENTED_TYPES: dict[str, type[BaseAgent]] = {
     "skip": SkipAgent,
     "dxf_count": DXFCountAgent,
     "dxf_area": DXFAreaAgent,
+    "dxf_geometry": DXFGeometryAgent,
+    "project_flag": ProjectFlagAgent,
 }
 
-_UNIMPLEMENTED_TYPES: frozenset[str] = frozenset({"dxf_geometry", "project_flag"})
+_UNIMPLEMENTED_TYPES: frozenset[str] = (
+    frozenset()
+)  # all types implemented through Phase 12
 
 
 def get_agent(cost_code: str) -> BaseAgent:
@@ -69,5 +75,5 @@ def get_agent(cost_code: str) -> BaseAgent:
     if cls is not None:
         return cls(cost_code=cost_code, config=config)
 
-    # dxf_geometry / project_flag — Phase 12
+    # Unknown agent type — will be implemented in a future phase
     return UnimplementedAgent(cost_code=cost_code, config=config, agent_type=agent_type)

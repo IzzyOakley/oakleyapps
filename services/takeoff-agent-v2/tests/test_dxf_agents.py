@@ -45,7 +45,6 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agents import get_agent
-from agents.base import UnimplementedAgent
 from agents.dxf_area import DXFAreaAgent
 from agents.dxf_count import DXFCountAgent
 from schemas import SharedParams
@@ -444,13 +443,13 @@ def test_factory_dxf_area_carpet():
     assert isinstance(agent, DXFAreaAgent)
 
 
-def test_factory_dxf_geometry_still_unimplemented():
-    """dxf_geometry is Phase 12 — still returns UnimplementedAgent."""
+def test_factory_dxf_geometry_now_implemented():
+    """dxf_geometry was Phase 12 — now returns DXFGeometryAgent."""
+    from agents.dxf_geometry import DXFGeometryAgent
+
     agent = get_agent("1200")  # Foundation (dxf_geometry)
-    assert isinstance(agent, UnimplementedAgent)
-    assert agent.agent_type == "dxf_geometry"
-    out = agent.run(SharedParams(), {})
-    assert "(coming in Phase 12)" in (out.notes or "")
+    assert isinstance(agent, DXFGeometryAgent)
+    assert agent.config["geometry_type"] == "perimeter"
 
 
 # ── Run endpoint — dxf_required_but_not_present ───────────────────────────────

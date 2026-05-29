@@ -81,8 +81,7 @@ class SkipAgent(BaseAgent):
 
 class UnimplementedAgent(BaseAgent):
     """
-    Placeholder for agent types that will be built in a later phase
-    (dxf_geometry, project_flag).
+    Placeholder for agent types that will be built in a future phase.
     Returns a clear flag so the PM knows it's pending.
     """
 
@@ -102,9 +101,6 @@ class UnimplementedAgent(BaseAgent):
             output=None,
             source=self.agent_type,
             confidence="low",
-            notes=(
-                f"Agent type '{self.agent_type}' is not yet implemented "
-                "(coming in Phase 12)."
-            ),
+            notes=(f"Agent type '{self.agent_type}' is not yet implemented."),
             flags=[f"agent_type_not_implemented:{self.agent_type}"],
         )

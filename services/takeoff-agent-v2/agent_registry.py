@@ -400,4 +400,37 @@ AGENT_REGISTRY: dict[str, dict] = {
             "unit": "LS",
         },
     },
+    # ── Project-Flag agents (Phase 12) ────────────────────────────────────────
+    # Detect optional features by scanning DXF text corpus with Claude.
+    # quantity=1 if present, 0 if absent.  Layer names N/A — text-based only.
+    "4900": {
+        "agent_class_name": "WineCellarProjectFlagAgent",
+        "agent_type": "project_flag",
+        "requires_dxf": True,
+        "agent_config": {"feature": "wine cellar", "unit": "EA"},
+    },
+    "5000": {
+        "agent_class_name": "PoolProjectFlagAgent",
+        "agent_type": "project_flag",
+        "requires_dxf": True,
+        "agent_config": {"feature": "pool", "unit": "EA"},
+    },
+    "5100": {
+        "agent_class_name": "GolfSimulatorProjectFlagAgent",
+        "agent_type": "project_flag",
+        "requires_dxf": True,
+        "agent_config": {"feature": "golf simulator", "unit": "EA"},
+    },
+    "5200": {
+        "agent_class_name": "SaunaProjectFlagAgent",
+        "agent_type": "project_flag",
+        "requires_dxf": True,
+        "agent_config": {"feature": "sauna", "unit": "EA"},
+    },
+    "5300": {
+        "agent_class_name": "PlasterFinishProjectFlagAgent",
+        "agent_type": "project_flag",
+        "requires_dxf": True,
+        "agent_config": {"feature": "plaster finish", "unit": "EA"},
+    },
 }

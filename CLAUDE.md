@@ -32,6 +32,7 @@ Work entirely within the existing monorepo.
 | 9 | DXF Pre-Processor | ✅ Complete |
 | 10 | SF-Formula & Historical-Avg Agents | ✅ Complete |
 | 11 | DXF-Count & DXF-Area Agents | ✅ Complete |
+| 12 | DXF-Geometry & Project-Flag Agents | ✅ Complete |
 
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
@@ -99,7 +100,11 @@ oakleyapps/
 │   │   ├── sf_formula.py                    # SFFormulaAgent — pure SF arithmetic
 │   │   ├── historical_avg.py               # HistoricalAvgAgent — median of vendor price_book awarded avgs
 │   │   ├── dxf_count.py                     # DXFCountAgent — INSERT entity counter (Phase 11)
-│   │   └── dxf_area.py                      # DXFAreaAgent — LWPOLYLINE/HATCH area accumulator (Phase 11)
+│   │   ├── dxf_area.py                      # DXFAreaAgent — LWPOLYLINE/HATCH area accumulator (Phase 11)
+│   │   ├── dxf_geometry.py                  # DXFGeometryAgent — perimeter/roof/wall/eave geometry (Phase 12)
+│   │   └── project_flag.py                  # ProjectFlagAgent — optional feature detection via Claude (Phase 12)
+│   ├── prompts/
+│   │   └── project_flag_v1.md              # System prompt for ProjectFlagAgent Claude calls
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── start-dev.sh                         # Port 8003
@@ -110,7 +115,9 @@ oakleyapps/
 │       ├── test_dxf_processor.py
 │       ├── test_agents.py                   # SFFormulaAgent, HistoricalAvgAgent, factory
 │       ├── test_run_agent.py                # POST /v2/.../run/{cost_code} endpoint
-│       └── test_dxf_agents.py              # DXFCountAgent, DXFAreaAgent (Phase 11)
+│       ├── test_dxf_agents.py              # DXFCountAgent, DXFAreaAgent (Phase 11)
+│       ├── test_dxf_geometry.py            # DXFGeometryAgent (Phase 12)
+│       └── test_project_flag.py            # ProjectFlagAgent (Phase 12)
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here
