@@ -41,7 +41,7 @@ jobs:
           cache: pip
 
       - name: Install tools
-        run: pip install ruff pytest fastapi pydantic requests
+        run: pip install ruff pytest -r services/takeoff-agent-v2/requirements.txt
 
       - name: Ruff lint
         run: ruff check services/takeoff-agent-v2/
