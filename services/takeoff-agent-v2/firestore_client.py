@@ -197,3 +197,107 @@ def log_run(run_doc: dict) -> str:
     )
     doc_ref.set({"run_id": run_id, **run_doc})
     return run_id
+
+
+# ── Phase 10 helpers ──────────────────────────────────────────────────────────
+
+
+def get_shared_params(project_id: str) -> dict | None:
+    """
+    Return the dxf_sections/shared_params subdocument for a v2 project, or None.
+    Written by the preprocess endpoint; used by the run endpoint.
+    """
+    db = get_db()
+    doc = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("dxf_sections")
+        .document("shared_params")
+        .get()
+    )
+    return doc.to_dict() if doc.exists else None
+
+
+def get_vendor_price_books(cost_code: str | None = None) -> dict[str, dict]:
+    """
+    Return {vendor_id: price_book_dict} for all vendors in apps/vendy/vendors.
+
+    If cost_code is provided only vendors whose price_book contains that cost code
+    under categories are returned — this avoids passing oversized price books to
+    agents that only need one cost code's worth of data.
+
+    Each price_book_dict has structure:
+        {categories: {cost_code: {item_description: {awarded: {extension: {avg, sample_count}}}}}}
+    """
+    db = get_db()
+    vendors = db.collection("apps").document("vendy").collection("vendors").stream()
+    result: dict[str, dict] = {}
+    for doc in vendors:
+        data = doc.to_dict() or {}
+        price_book = data.get("price_book", {})
+        if not price_book:
+            continue
+        if cost_code is None or cost_code in price_book.get("categories", {}):
+            result[doc.id] = price_book
+    return result
+
+
+def get_cost_code_doc(project_id: str, cost_code: str) -> dict | None:
+    """Return the cost_codes/{cost_code} subdocument for a v2 project, or None."""
+    db = get_db()
+    doc = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("cost_codes")
+        .document(cost_code)
+        .get()
+    )
+    return doc.to_dict() if doc.exists else None
+
+
+def save_agent_output(
+    project_id: str,
+    cost_code: str,
+    agent_output: dict,
+    run_id: str,
+    agent_status: str,
+) -> None:
+    """
+    Atomically update the cost_codes/{cost_code} subdocument with agent run results.
+
+    agent_output: AgentOutput.model_dump() from the agent run.
+    agent_status: "complete" | "failed" | "manual_required" | "skipped"
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    batch = db.batch()
+
+    cc_ref = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("cost_codes")
+        .document(cost_code)
+    )
+    batch.update(
+        cc_ref,
+        {
+            "agent_status": agent_status,
+            "agent_run_id": run_id,
+            "quantity": agent_output.get("quantity"),
+            "unit": agent_output.get("unit"),
+            "output": agent_output.get("output"),
+            "confidence": agent_output.get("confidence"),
+            "source": agent_output.get("source"),
+            "notes": agent_output.get("notes"),
+            "flags": agent_output.get("flags", []),
+            "updated_at": now,
+        },
+    )
+
+    batch.commit()

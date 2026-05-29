@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import firestore_client as fs
 import gcs_client as gcs
 from agent_registry import AGENT_REGISTRY
+from agents import get_agent
 from airtable_client import AirtableClient
 from dxf_processor import DXFProcessor
 from estimate_parser import EstimateParseError, EstimateParser
@@ -491,4 +492,131 @@ async def preprocess_project(
         "preprocess_status": "complete",
         "shared_params": params_dict,
         "run_id": run_id,
+    }
+
+
+# ── POST /v2/projects/{project_id}/run/{cost_code} (10.3) ────────────────────
+
+
+@app.post("/v2/projects/{project_id}/run/{cost_code}")
+async def run_agent(
+    project_id: str,
+    cost_code: str,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Run the agent for a single cost code.
+
+    Reads SharedParams from dxf_sections/shared_params, fetches vendor price books
+    for historical_avg agents, executes the agent, saves output to
+    cost_codes/{cost_code}, and logs the run to apps/vendy/runs.
+
+    agent_status in the response reflects the run outcome:
+      complete         — agent ran and produced a result
+      manual_required  — ManualHoldAgent; PM must enter value manually
+      skipped          — SkipAgent; profit/non-takeoff item
+      failed           — formula error or unhandled exception
+
+    Returns 404 if the project or cost_code document is not found.
+    Returns 409 if the project is locked.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+
+    if project.get("locked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' is locked — unlock it before running agents.",
+        )
+
+    cc_doc = fs.get_cost_code_doc(project_id, cost_code)
+    if cc_doc is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cost code '{cost_code}' not found in project '{project_id}'.",
+        )
+
+    # Build SharedParams — fall back to zeros if preprocess has not run yet.
+    shared_params_data = fs.get_shared_params(project_id) or {}
+    shared_params_fields = set(SharedParams.model_fields.keys())
+    filtered = {
+        k: v for k, v in shared_params_data.items() if k in shared_params_fields
+    }
+    shared_params = SharedParams(**filtered)
+
+    # Only fetch price books for historical_avg agents (avoids unnecessary reads).
+    registry_entry = AGENT_REGISTRY.get(cost_code, {})
+    price_book_data: dict = {}
+    if registry_entry.get("agent_type") == "historical_avg":
+        price_book_data = fs.get_vendor_price_books(cost_code)
+
+    agent = get_agent(cost_code)
+
+    started_at = datetime.now(timezone.utc)
+    t0 = time.monotonic()
+
+    try:
+        result = agent.run(shared_params, price_book_data)
+    except Exception as exc:
+        run_id = fs.log_run(
+            {
+                "project_id": project_id,
+                "cost_code": cost_code,
+                "run_type": "agent_run",
+                "agent_type": registry_entry.get("agent_type", "unknown"),
+                "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc),
+                "duration_ms": round((time.monotonic() - t0) * 1000),
+                "status": "failed",
+                "error": str(exc),
+                "triggered_by": user["email"],
+            }
+        )
+        fs.save_agent_output(project_id, cost_code, {}, run_id, "failed")
+        raise HTTPException(status_code=500, detail=f"Agent run failed: {exc}") from exc
+
+    completed_at = datetime.now(timezone.utc)
+    duration_ms = round((time.monotonic() - t0) * 1000)
+    output_dict = result.model_dump()
+
+    # Resolve agent_status from result signals.
+    flags_str = " ".join(result.flags)
+    if result.source == "manual":
+        agent_status = "manual_required"
+    elif result.source == "skip":
+        agent_status = "skipped"
+    elif "formula_eval_error" in flags_str or "agent_type_not_implemented" in flags_str:
+        agent_status = "failed"
+    else:
+        agent_status = "complete"
+
+    run_id = fs.log_run(
+        {
+            "project_id": project_id,
+            "cost_code": cost_code,
+            "run_type": "agent_run",
+            "agent_type": registry_entry.get("agent_type", "unknown"),
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": duration_ms,
+            "status": "complete",
+            "agent_status": agent_status,
+            "confidence": result.confidence,
+            "source": result.source,
+            "flags": result.flags,
+            "triggered_by": user["email"],
+        }
+    )
+
+    fs.save_agent_output(project_id, cost_code, output_dict, run_id, agent_status)
+
+    return {
+        "project_id": project_id,
+        "cost_code": cost_code,
+        "agent_status": agent_status,
+        "run_id": run_id,
+        "agent_output": output_dict,
     }

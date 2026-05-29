@@ -30,6 +30,7 @@ Work entirely within the existing monorepo.
 | 7 | Service Scaffold & Airtable Integration | ✅ Complete — deployed to Cloud Run |
 | 8 | Project Creation — Both Sources | ✅ Complete |
 | 9 | DXF Pre-Processor | ✅ Complete |
+| 10 | SF-Formula & Historical-Avg Agents | ✅ Complete |
 
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
@@ -91,6 +92,11 @@ oakleyapps/
 │   ├── dxf_config.py                        # Layer name config for DXF extraction (update in Phase 16)
 │   ├── dxf_processor.py                     # DXFProcessor — LWPOLYLINE/HATCH area + block counts
 │   ├── agent_registry.py                    # AGENT_REGISTRY — all 49 cost codes → agent type + config
+│   ├── agents/
+│   │   ├── __init__.py                      # get_agent(cost_code) factory
+│   │   ├── base.py                          # BaseAgent, ManualHoldAgent, SkipAgent, UnimplementedAgent
+│   │   ├── sf_formula.py                    # SFFormulaAgent — pure SF arithmetic
+│   │   └── historical_avg.py               # HistoricalAvgAgent — median of vendor price_book awarded avgs
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── start-dev.sh                         # Port 8003
@@ -604,6 +610,7 @@ curl http://localhost:8001/health
 | POST | `/v2/projects/from-gcs` | pm | Create v2 project from GCS folder — multipart: folder_name, estimate_pdf, corrected_lines |
 | GET | `/v2/projects/{project_id}/dxf-status` | any | DXF presence + preprocess_status |
 | POST | `/v2/projects/{project_id}/preprocess` | pm | Run DXF pre-processor — writes SharedParams to dxf_sections/shared_params |
+| POST | `/v2/projects/{project_id}/run/{cost_code}` | pm | Run single agent for a cost code — writes AgentOutput to cost_codes sub-doc |
 
 ### Cloud Functions (GCP — not proxied)
 
