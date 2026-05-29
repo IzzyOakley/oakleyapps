@@ -112,3 +112,10 @@ class V2Project(BaseModel):
     validation_status: Optional[str] = None
     validation_report: Optional[dict[str, Any]] = None
     created_by: Optional[str] = None
+
+
+# ── Request bodies ─────────────────────────────────────────────────────────────
+
+
+class CreateFromAirtableRequest(BaseModel):
+    airtable_record_id: str

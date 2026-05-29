@@ -27,7 +27,8 @@ Work entirely within the existing monorepo.
 | 4 | Vendor Intelligence | ✅ Complete |
 | 5 | Bid Lifecycle | ✅ Complete — live in production |
 | 6 | Analytics & Reporting | ✅ Complete — live in production |
-| 7 | Service Scaffold & Airtable Integration | ✅ Complete |
+| 7 | Service Scaffold & Airtable Integration | ✅ Complete — deployed to Cloud Run |
+| 8 | Project Creation — Both Sources | ✅ Complete |
 
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
