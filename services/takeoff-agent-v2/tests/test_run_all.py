@@ -187,7 +187,9 @@ def test_background_no_dxf_passes_none_to_dxf_agents():
     """When project has no DXF, dxf_local_path=None for requires_dxf agents."""
     dxf_paths_seen: list = []
 
-    def _capture_exec(project_id, cost_code, shared_params, pb_data, dxf_local_path, triggered_by):
+    def _capture_exec(
+        project_id, cost_code, shared_params, pb_data, dxf_local_path, triggered_by
+    ):
         dxf_paths_seen.append((cost_code, dxf_local_path))
         return "failed", {}, "run-x"
 

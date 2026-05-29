@@ -88,9 +88,7 @@ def _pb_avg_extension(cost_code: str, price_book_data: dict) -> float | None:
             continue
         total = 0.0
         for _item_desc, item_data in cc_items.items():
-            avg = (
-                item_data.get("awarded", {}).get("extension", {}).get("avg")
-            )
+            avg = item_data.get("awarded", {}).get("extension", {}).get("avg")
             if avg is not None:
                 total += float(avg)
         if total > 0:
@@ -128,13 +126,10 @@ def _analyze_items(
         # Variance vs price-book (compare total estimate cost, not unit cost)
         variance_pct: float | None = None
         if pb_avg and pb_avg > 0 and estimate_cost is not None:
-            variance_pct = round(
-                (float(estimate_cost) - pb_avg) / pb_avg * 100.0, 2
-            )
+            variance_pct = round((float(estimate_cost) - pb_avg) / pb_avg * 100.0, 2)
 
         flagged = (
-            variance_pct is not None
-            and abs(variance_pct) > _VARIANCE_THRESHOLD_PCT
+            variance_pct is not None and abs(variance_pct) > _VARIANCE_THRESHOLD_PCT
         )
 
         items.append(
@@ -264,8 +259,8 @@ class ValidationAgent:
             validation_status = "claude_api_error"
         else:
             try:
-                claude_summary, input_tokens, output_tokens, duration_ms = (
-                    _call_claude(analysis_payload, model, api_key)
+                claude_summary, input_tokens, output_tokens, duration_ms = _call_claude(
+                    analysis_payload, model, api_key
                 )
             except Exception as exc:
                 validation_status = f"claude_api_error:{exc!s}"

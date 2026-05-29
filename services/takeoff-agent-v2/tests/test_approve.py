@@ -183,7 +183,9 @@ def test_approve_publishes_pubsub():
         patch("main.fs.get_all_cost_code_docs", return_value=_CC_DOCS),
         patch("main.fs.save_takeoff_snapshot"),
         patch("main.fs.lock_v2_project"),
-        patch("main.pubsub_client.publish_takeoff_approved", side_effect=_capture_publish),
+        patch(
+            "main.pubsub_client.publish_takeoff_approved", side_effect=_capture_publish
+        ),
     ):
         resp = _post_approve()
 

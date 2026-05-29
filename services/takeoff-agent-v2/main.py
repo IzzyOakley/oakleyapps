@@ -10,7 +10,16 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 import firestore_client as fs
@@ -784,7 +793,9 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
     # ── SharedParams ──────────────────────────────────────────────────────────
     shared_params_data = await asyncio.to_thread(fs.get_shared_params, project_id) or {}
     shared_params_fields = set(SharedParams.model_fields.keys())
-    filtered = {k: v for k, v in shared_params_data.items() if k in shared_params_fields}
+    filtered = {
+        k: v for k, v in shared_params_data.items() if k in shared_params_fields
+    }
     shared_params = SharedParams(**filtered)
 
     cost_code_docs = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
@@ -809,10 +820,14 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
 
         if dxf_gcs_path:
             try:
-                tmp_dxf = await asyncio.to_thread(gcs.download_dxf_to_temp, dxf_gcs_path)
+                tmp_dxf = await asyncio.to_thread(
+                    gcs.download_dxf_to_temp, dxf_gcs_path
+                )
                 dxf_local_path = tmp_dxf
             except Exception:
-                dxf_local_path = None  # agents will each report no_dxf_path / dxf_read_error
+                dxf_local_path = (
+                    None  # agents will each report no_dxf_path / dxf_read_error
+                )
 
     # ── Parallel agent execution ──────────────────────────────────────────────
     semaphore = asyncio.Semaphore(10)

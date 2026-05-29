@@ -264,9 +264,7 @@ def test_validation_empty_price_book_status():
         mock_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response()
 
-        report = ValidationAgent().run(
-            "proj1", "Test House", _COST_CODE_DOCS, {}
-        )
+        report = ValidationAgent().run("proj1", "Test House", _COST_CODE_DOCS, {})
 
     assert report["validation_status"] == "no_price_book_data"
 
