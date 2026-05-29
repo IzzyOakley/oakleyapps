@@ -388,3 +388,64 @@ def lock_v2_project(project_id: str, locked_by: str) -> None:
             }
         )
     )
+
+
+# ── Phase 14 helpers ──────────────────────────────────────────────────────────
+
+
+def list_v2_projects() -> list[dict]:
+    """Return all v2_jobs documents ordered by job_name."""
+    db = get_db()
+    docs = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .order_by("job_name")
+        .stream()
+    )
+    return [d.to_dict() for d in docs if d.to_dict()]
+
+
+def update_cost_code_override(
+    project_id: str,
+    cost_code: str,
+    updates: dict,
+    override_by: str,
+) -> None:
+    """
+    Apply PM overrides to a cost_codes sub-document.
+
+    updates may contain: quantity, unit, estimate_final_cost, overrides, override_notes.
+    Always sets override_by and updated_at.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    ref = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("cost_codes")
+        .document(cost_code)
+    )
+    ref.update({**updates, "override_by": override_by, "updated_at": now})
+
+
+def get_cost_code_runs(project_id: str, cost_code: str, limit: int = 20) -> list[dict]:
+    """
+    Return recent agent runs for a specific cost code, newest first.
+
+    Queries apps/vendy/runs filtered by project_id and cost_code.
+    """
+    db = get_db()
+    docs = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("runs")
+        .where("project_id", "==", project_id)
+        .where("cost_code", "==", cost_code)
+        .order_by("started_at", direction="DESCENDING")
+        .limit(limit)
+        .stream()
+    )
+    return [d.to_dict() for d in docs if d.to_dict()]

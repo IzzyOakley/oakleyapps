@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import TakeoffHubClient from './TakeoffHubClient'
+import TakeoffHubV2Client from './TakeoffHubV2Client'
 
 export const metadata: Metadata = { title: 'Takeoffs — Vendy' }
 
 export default function TakeoffsPage() {
-  return <TakeoffHubClient />
+  return <TakeoffHubV2Client />
 }

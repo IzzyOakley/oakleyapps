@@ -949,6 +949,128 @@ async def run_all_agents(
     }
 
 
+# ── GET /v2/projects (14.1) ──────────────────────────────────────────────────
+
+
+@app.get("/v2/projects")
+async def list_projects(user: dict = Depends(require_pm)) -> list[dict]:
+    """Return all v2 projects ordered by job_name."""
+    return await asyncio.to_thread(fs.list_v2_projects)
+
+
+# ── GET /v2/projects/{project_id} (14.3) ─────────────────────────────────────
+
+
+@app.get("/v2/projects/{project_id}")
+async def get_project(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Return a v2 project document with its cost_codes sub-documents.
+
+    Returns 404 if the project is not found.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    cost_codes = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
+    return {**project, "cost_codes": cost_codes}
+
+
+# ── GET /v2/projects/{project_id}/cost-codes/{cost_code} (14.4) ──────────────
+
+
+@app.get("/v2/projects/{project_id}/cost-codes/{cost_code}")
+async def get_cost_code(
+    project_id: str,
+    cost_code: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Return a single cost_code sub-document.
+
+    Returns 404 if the project or cost code is not found.
+    """
+    if fs.get_v2_project(project_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    doc = fs.get_cost_code_doc(project_id, cost_code)
+    if doc is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cost code '{cost_code}' not found in project '{project_id}'.",
+        )
+    return doc
+
+
+# ── GET /v2/projects/{project_id}/cost-codes/{cost_code}/runs (14.4) ─────────
+
+
+@app.get("/v2/projects/{project_id}/cost-codes/{cost_code}/runs")
+async def get_cost_code_runs(
+    project_id: str,
+    cost_code: str,
+    user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """Return the most recent agent runs for a cost code, newest first."""
+    if fs.get_v2_project(project_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    return await asyncio.to_thread(fs.get_cost_code_runs, project_id, cost_code)
+
+
+# ── PATCH /v2/projects/{project_id}/cost-codes/{cost_code} (14.4) ────────────
+
+
+@app.patch("/v2/projects/{project_id}/cost-codes/{cost_code}")
+async def update_cost_code(
+    project_id: str,
+    cost_code: str,
+    body: dict,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Apply PM overrides to a cost_code sub-document.
+
+    Accepted keys: quantity, unit, estimate_final_cost, overrides, override_notes.
+    Returns 404 if the project or cost code is not found.
+    Returns 409 if the project is locked.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    if project.get("locked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' is locked.",
+        )
+    if fs.get_cost_code_doc(project_id, cost_code) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cost code '{cost_code}' not found in project '{project_id}'.",
+        )
+
+    allowed_keys = {
+        "quantity",
+        "unit",
+        "estimate_final_cost",
+        "overrides",
+        "override_notes",
+    }
+    updates = {k: v for k, v in body.items() if k in allowed_keys}
+    await asyncio.to_thread(
+        fs.update_cost_code_override, project_id, cost_code, updates, user["email"]
+    )
+    return {"project_id": project_id, "cost_code": cost_code, "status": "updated"}
+
+
 # ── POST /v2/projects/{project_id}/approve (13.3) ────────────────────────────
 
 

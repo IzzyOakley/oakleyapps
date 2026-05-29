@@ -1,9 +1,13 @@
 import type { Metadata } from 'next'
-import ProjectDetailClient from './ProjectDetailClient'
+import ProjectDetailRouter from './ProjectDetailRouter'
 
 export const metadata: Metadata = { title: 'Project — Vendy' }
 
-export default async function ProjectDetailPage({ params }: { params: Promise<{ project_id: string }> }) {
+export default async function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ project_id: string }>
+}) {
   const { project_id } = await params
-  return <ProjectDetailClient projectId={project_id} />
+  return <ProjectDetailRouter projectId={project_id} />
 }

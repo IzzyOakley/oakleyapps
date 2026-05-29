@@ -122,6 +122,95 @@ export interface BidDocument {
   updated_at?: string | null
 }
 
+// ── v2 Takeoff types ───────────────────────────────────────────────────────────
+
+export type V2ProjectStatus = 'pending' | 'in_progress' | 'complete' | 'locked'
+export type V2AgentStatus = 'pending' | 'running' | 'complete' | 'failed' | 'manual_required' | 'skipped'
+export type V2ProjectSource = 'airtable' | 'gcs'
+
+export interface V2ProjectSummary {
+  project_id: string
+  job_name: string
+  address: string
+  project_source: V2ProjectSource
+  status: V2ProjectStatus
+  locked: boolean
+  locked_at: string | null
+  locked_by: string | null
+  dxf_present: boolean
+  dxf_gcs_path: string | null
+  preprocess_status: string | null
+  validation_status: string | null
+  airtable_record_id: string | null
+  created_by: string | null
+}
+
+export interface V2CostCodeDoc {
+  cost_code: string
+  cost_code_name: string
+  category: string
+  is_profit_item: boolean
+  agent_type: string
+  estimate_final_cost: number | null
+  agent_status: V2AgentStatus
+  agent_run_id: string | null
+  quantity: number | null
+  unit: string | null
+  output: Record<string, unknown> | null
+  confidence: 'high' | 'medium' | 'low' | null
+  source: string | null
+  notes: string | null
+  flags: string[]
+  overrides: Record<string, unknown> | null
+  override_notes: string | null
+  override_by: string | null
+}
+
+export interface V2ProjectDetail extends V2ProjectSummary {
+  reference_home_ids: string[]
+  estimate_pdf_gcs_path: string | null
+  validation_report: Record<string, unknown> | null
+  cost_codes: V2CostCodeDoc[]
+}
+
+export interface AirtableProjectOption {
+  record_id: string
+  job_name: string
+  address: string
+  reference_home_ids: string[]
+  estimate_line_count: number
+}
+
+export interface GCSProjectOption {
+  folder_name: string
+  has_dxf: boolean
+  has_pdf: boolean
+  has_estimate_pdf: boolean
+  last_modified: string | null
+}
+
+export interface V2RunLog {
+  run_id?: string
+  project_id: string
+  cost_code?: string
+  run_type: string
+  agent_type?: string
+  started_at: string | { _seconds: number }
+  completed_at?: string | { _seconds: number }
+  duration_ms?: number
+  status: string
+  agent_status?: string
+  source?: string
+  confidence?: string
+  flags?: string[]
+  triggered_by?: string
+  error?: string
+  uses_claude?: boolean
+  input_tokens?: number
+  output_tokens?: number
+  model?: string
+}
+
 export interface BidSummary {
   bid_id: string
   project_id: string
