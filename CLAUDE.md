@@ -27,8 +27,8 @@ Work entirely within the existing monorepo.
 | 4 | Vendor Intelligence | ✅ Complete |
 | 5 | Bid Lifecycle | ✅ Complete — live in production |
 | 6 | Analytics & Reporting | ✅ Complete — live in production |
+| 7 | Service Scaffold & Airtable Integration | ✅ Complete |
 
-**All phases complete. Vendy is fully operational in production.**
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
 ---
@@ -78,6 +78,18 @@ oakleyapps/
 │       ├── types.ts                         # ⚠ EXISTING — add types, don't remove
 │       ├── bids-api.ts                      # Bid-specific fetch helpers (downloadBidPdf etc.)
 │       └── analytics-api.ts                 # Analytics fetch helpers (4 endpoints)
+│
+├── services/takeoff-agent-v2/               # NEW Python FastAPI — v2 multi-agent system (Phase 7+)
+│   ├── main.py                              # FastAPI app, /health, /v2/airtable/projects, /v2/gcs/projects
+│   ├── schemas.py                           # Pydantic models — V2Project, AirtableProject, GCSProject, etc.
+│   ├── firestore_client.py                  # v2 Firestore helpers
+│   ├── gcs_client.py                        # GCS project folder listing, DXF download/upload
+│   ├── airtable_client.py                   # Airtable REST client — Contract Signed projects + estimate lines
+│   ├── agent_registry.py                    # AGENT_REGISTRY — all 49 cost codes → agent type + config
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── start-dev.sh                         # Port 8003
+│   └── tests/test_airtable_client.py
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here
@@ -146,6 +158,7 @@ All browser requests go through one of two Next.js proxies:
 |-------|-----------------|
 | `app/api/vendy/[...path]/route.ts` | `takeoff-agent` Cloud Run (`TAKEOFF_AGENT_URL`) |
 | `app/api/vendy/bids/[...path]/route.ts` | `bid-generator` Cloud Run (`BID_GENERATOR_URL`) |
+| `app/api/vendy/takeoffs-v2/[...path]/route.ts` | `takeoff-agent-v2` Cloud Run (`TAKEOFF_AGENT_V2_URL`) |
 
 Both proxies:
 1. Validate the Firebase session cookie via Firebase Admin SDK (returns 401 if missing/invalid)
@@ -479,11 +492,26 @@ INTERNAL_SERVICE_SECRET=oakley-internal-dev
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/buildertrend-pipeline-key.json
 ```
 
+### services/takeoff-agent-v2/.env (local dev — gitignored)
+
+```
+FIREBASE_PROJECT_ID=buildertrend-pipeline
+GCS_BUCKET=oakley-documents
+GCS_PROJECT=buildertrend-pipeline
+ANTHROPIC_API_KEY=sk-ant-...
+MODEL_VERSION=claude-opus-4-6
+PORT=8003
+INTERNAL_SERVICE_SECRET=oakley-internal-dev
+AIRTABLE_API_TOKEN=pat...
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/buildertrend-pipeline-key.json
+```
+
 ### apps/web/.env.local (local dev — gitignored)
 
 ```
 TAKEOFF_AGENT_URL=http://localhost:8001
 BID_GENERATOR_URL=http://localhost:8002
+TAKEOFF_AGENT_V2_URL=http://localhost:8003
 INTERNAL_SERVICE_SECRET=oakley-internal-dev
 NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_FIREBASE_APP_ID=...
@@ -555,6 +583,14 @@ curl http://localhost:8001/health
 | GET | `/bids/{bid_id}/pdf` | any | Download bid PDF |
 | GET | `/cost-codes` | any | Biddable cost codes with vendors |
 | POST | `/process/{project_id}` | pm | Manual bid generation trigger |
+
+### takeoff-agent-v2 (proxied via `/api/vendy/takeoffs-v2/[...path]`)
+
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/health` | — | Returns `{status: ok, version: 2.0.0}` |
+| GET | `/v2/airtable/projects` | pm | Contract Signed projects from Airtable, excluding existing Vendy projects |
+| GET | `/v2/gcs/projects` | pm | GCS project folders with DXF/PDF flags, excluding existing Vendy projects |
 
 ### Cloud Functions (GCP — not proxied)
 

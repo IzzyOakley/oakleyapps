@@ -1,0 +1,12 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+google-cloud-firestore>=2.16.0
+google-cloud-storage>=2.16.0
+anthropic>=0.40.0
+ezdxf>=1.2.0
+pdfplumber>=0.10.0
+requests>=2.31.0
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.9
+httpx>=0.27.0

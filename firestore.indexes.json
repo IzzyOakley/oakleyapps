@@ -39,6 +39,46 @@
         { "fieldPath": "active", "order": "ASCENDING" },
         { "fieldPath": "name", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "v2_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "v2_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "project_source", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "v2_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "locked", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cost_codes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "agent_status", "order": "ASCENDING" },
+        { "fieldPath": "cost_code", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cost_codes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "is_profit_item", "order": "ASCENDING" },
+        { "fieldPath": "agent_status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

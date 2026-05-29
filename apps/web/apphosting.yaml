@@ -74,3 +74,8 @@ env:
     value: https://bid-generator-504450312463.us-central1.run.app
     availability:
       - RUNTIME
+
+  - variable: TAKEOFF_AGENT_V2_URL
+    value: https://takeoff-agent-v2-504450312463.us-central1.run.app
+    availability:
+      - RUNTIME

@@ -1,0 +1,137 @@
+name: Takeoff Agent v2 — CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/takeoff-agent-v2/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/takeoff-agent-v2/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  IMAGE: us-central1-docker.pkg.dev/oakley-apps/oakley-apps/takeoff-agent-v2
+  SERVICE: takeoff-agent-v2
+  REGION: us-central1
+  PROJECT: oakley-apps
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # CI — lint & run tests (runs on PRs and main)
+  # ──────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install tools
+        run: pip install ruff pytest fastapi pydantic requests
+
+      - name: Ruff lint
+        run: ruff check services/takeoff-agent-v2/
+
+      - name: Ruff format check
+        run: ruff format --check services/takeoff-agent-v2/
+
+      - name: Run unit tests
+        run: |
+          cd services/takeoff-agent-v2
+          python -m pytest tests/ -v
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # CD — build, push, deploy (main branch only)
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            services/takeoff-agent-v2/
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT }} \
+            --no-allow-unauthenticated \
+            --memory 4Gi \
+            --cpu 4 \
+            --concurrency 10 \
+            --min-instances 0 \
+            --max-instances 5 \
+            --timeout 600 \
+            --no-cpu-throttling \
+            --port 8080 \
+            --set-env-vars "FIREBASE_PROJECT_ID=buildertrend-pipeline" \
+            --set-env-vars "GCS_BUCKET=oakley-documents" \
+            --set-env-vars "GCS_PROJECT=buildertrend-pipeline" \
+            --set-env-vars "PUBSUB_PROJECT=buildertrend-pipeline" \
+            --set-env-vars "ENVIRONMENT=production" \
+            --set-secrets "ANTHROPIC_API_KEY=anthropic-api-key:latest" \
+            --set-secrets "MODEL_VERSION=MODEL_VERSION:latest" \
+            --set-secrets "INTERNAL_SERVICE_SECRET=INTERNAL_SERVICE_SECRET:latest" \
+            --set-secrets "AIRTABLE_API_TOKEN=airtable-api-token:latest"
+
+      - name: Grant Cloud Run Invoker to Firebase App Hosting SA
+        run: |
+          gcloud run services add-iam-policy-binding ${{ env.SERVICE }} \
+            --member="serviceAccount:firebase-app-hosting-compute@${{ env.PROJECT }}.iam.gserviceaccount.com" \
+            --role="roles/run.invoker" \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }}
+
+      - name: Verify deployment
+        run: |
+          gcloud run services describe ${{ env.SERVICE }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT }} \
+            --format="value(status.url)"
