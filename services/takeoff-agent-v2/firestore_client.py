@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 
 from google.cloud import firestore
@@ -142,3 +143,57 @@ def create_v2_project_batch(
         batch.set(cc_ref, {**doc, "updated_at": now})
 
     batch.commit()
+
+
+# ── Phase 9 helpers ───────────────────────────────────────────────────────────
+
+
+def get_v2_project(project_id: str) -> dict | None:
+    """Return the apps/vendy/v2_jobs/{project_id} document as a dict, or None."""
+    db = get_db()
+    doc = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .get()
+    )
+    return doc.to_dict() if doc.exists else None
+
+
+def save_preprocess_result(
+    project_id: str,
+    shared_params: dict,
+    status: str,
+) -> None:
+    """
+    Atomically write SharedParams to dxf_sections/shared_params and
+    update preprocess_status on the parent v2_jobs document.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    batch = db.batch()
+
+    v2_job_ref = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+    )
+    batch.update(v2_job_ref, {"preprocess_status": status, "updated_at": now})
+
+    shared_params_ref = v2_job_ref.collection("dxf_sections").document("shared_params")
+    batch.set(shared_params_ref, {**shared_params, "updated_at": now})
+
+    batch.commit()
+
+
+def log_run(run_doc: dict) -> str:
+    """Write a run document to apps/vendy/runs/{run_id}. Returns the run_id."""
+    db = get_db()
+    run_id = str(uuid.uuid4())
+    doc_ref = (
+        db.collection("apps").document("vendy").collection("runs").document(run_id)
+    )
+    doc_ref.set({"run_id": run_id, **run_doc})
+    return run_id

@@ -1,6 +1,8 @@
 import json
 import os
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,8 +16,15 @@ import firestore_client as fs
 import gcs_client as gcs
 from agent_registry import AGENT_REGISTRY
 from airtable_client import AirtableClient
+from dxf_processor import DXFProcessor
 from estimate_parser import EstimateParseError, EstimateParser
-from schemas import AirtableProject, CreateFromAirtableRequest, GCSProject, V2Project
+from schemas import (
+    AirtableProject,
+    CreateFromAirtableRequest,
+    GCSProject,
+    SharedParams,
+    V2Project,
+)
 
 INTERNAL_SERVICE_SECRET = os.environ.get(
     "INTERNAL_SERVICE_SECRET", "oakley-internal-dev"
@@ -359,3 +368,127 @@ async def create_project_from_gcs(
         dxf_gcs_path=dxf_info.get("dxf_gcs_path"),
         created_by=user["email"],
     )
+
+
+# ── GET /v2/projects/{project_id}/dxf-status (9.2) ───────────────────────────
+
+
+@app.get("/v2/projects/{project_id}/dxf-status")
+async def get_dxf_status(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Return DXF presence and pre-processing status for a v2 project.
+    Checks Firestore for the stored dxf_gcs_path, then confirms with GCS.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+
+    # Re-check GCS in case DXF was uploaded after project was created
+    job_name = project.get("job_name", project_id)
+    dxf_info = gcs.check_dxf_present(job_name)
+
+    return {
+        "project_id": project_id,
+        "dxf_present": dxf_info["dxf_present"],
+        "dxf_gcs_path": dxf_info.get("dxf_gcs_path"),
+        "preprocess_status": project.get("preprocess_status"),
+    }
+
+
+# ── POST /v2/projects/{project_id}/preprocess (9.2) ──────────────────────────
+
+
+@app.post("/v2/projects/{project_id}/preprocess")
+async def preprocess_project(
+    project_id: str,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Download the project DXF from GCS, run DXFProcessor.extract_shared_params(),
+    write results to dxf_sections/shared_params, update preprocess_status,
+    and log to apps/vendy/runs.
+
+    Returns SharedParams + preprocess_status.
+    Returns 404 if project not found.
+    Returns 503 if no DXF file is present.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+
+    job_name = project.get("job_name", project_id)
+    dxf_gcs_path: str | None = project.get("dxf_gcs_path")
+
+    if not dxf_gcs_path:
+        dxf_info = gcs.check_dxf_present(job_name)
+        if not dxf_info["dxf_present"]:
+            fs.save_preprocess_result(project_id, {}, "failed")
+            raise HTTPException(
+                status_code=503,
+                detail=f"No DXF file found for project '{project_id}'. "
+                "Upload a DXF to GCS at projects/{job_name}/blueprints/ first.",
+            )
+        dxf_gcs_path = dxf_info["dxf_gcs_path"]
+
+    started_at = datetime.now(timezone.utc)
+    t0 = time.monotonic()
+    tmp_path: str | None = None
+
+    try:
+        tmp_path = gcs.download_dxf_to_temp(dxf_gcs_path)
+        processor = DXFProcessor(tmp_path)
+        shared_params: SharedParams = processor.extract_shared_params()
+    except Exception as exc:
+        fs.save_preprocess_result(project_id, {}, "failed")
+        fs.log_run(
+            {
+                "project_id": project_id,
+                "run_type": "dxf_preprocess",
+                "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc),
+                "duration_ms": round((time.monotonic() - t0) * 1000),
+                "status": "failed",
+                "error": str(exc),
+            }
+        )
+        raise HTTPException(
+            status_code=500, detail=f"DXF processing failed: {exc}"
+        ) from exc
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    params_dict = shared_params.model_dump()
+    params_dict["dxf_gcs_path"] = dxf_gcs_path
+
+    fs.save_preprocess_result(project_id, params_dict, "complete")
+
+    run_id = fs.log_run(
+        {
+            "project_id": project_id,
+            "run_type": "dxf_preprocess",
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc),
+            "duration_ms": round((time.monotonic() - t0) * 1000),
+            "status": "complete",
+            "dxf_gcs_path": dxf_gcs_path,
+            "confidence": shared_params.confidence,
+            "layers_found": shared_params.layers_found,
+            "layers_missing": shared_params.layers_missing,
+            "flags": shared_params.flags,
+        }
+    )
+
+    return {
+        "project_id": project_id,
+        "preprocess_status": "complete",
+        "shared_params": params_dict,
+        "run_id": run_id,
+    }

@@ -29,6 +29,7 @@ Work entirely within the existing monorepo.
 | 6 | Analytics & Reporting | ✅ Complete — live in production |
 | 7 | Service Scaffold & Airtable Integration | ✅ Complete — deployed to Cloud Run |
 | 8 | Project Creation — Both Sources | ✅ Complete |
+| 9 | DXF Pre-Processor | ✅ Complete |
 
 After every change to shared files, verify that the hub page, blueprint upload, takeoff generation, PM review, and approval flow still work end-to-end.
 
@@ -81,16 +82,23 @@ oakleyapps/
 │       └── analytics-api.ts                 # Analytics fetch helpers (4 endpoints)
 │
 ├── services/takeoff-agent-v2/               # NEW Python FastAPI — v2 multi-agent system (Phase 7+)
-│   ├── main.py                              # FastAPI app, /health, /v2/airtable/projects, /v2/gcs/projects
-│   ├── schemas.py                           # Pydantic models — V2Project, AirtableProject, GCSProject, etc.
-│   ├── firestore_client.py                  # v2 Firestore helpers
+│   ├── main.py                              # FastAPI app — all v2 endpoints
+│   ├── schemas.py                           # Pydantic models — V2Project, SharedParams, etc.
+│   ├── firestore_client.py                  # v2 Firestore helpers (project CRUD, preprocess, run log)
 │   ├── gcs_client.py                        # GCS project folder listing, DXF download/upload
 │   ├── airtable_client.py                   # Airtable REST client — Contract Signed projects + estimate lines
+│   ├── estimate_parser.py                   # pdfplumber PDF estimate parser — cost_code/final_cost pairs
+│   ├── dxf_config.py                        # Layer name config for DXF extraction (update in Phase 16)
+│   ├── dxf_processor.py                     # DXFProcessor — LWPOLYLINE/HATCH area + block counts
 │   ├── agent_registry.py                    # AGENT_REGISTRY — all 49 cost codes → agent type + config
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── start-dev.sh                         # Port 8003
-│   └── tests/test_airtable_client.py
+│   └── tests/
+│       ├── test_airtable_client.py
+│       ├── test_estimate_parser.py
+│       ├── test_project_creation.py
+│       └── test_dxf_processor.py
 │
 ├── services/takeoff-agent/                  # ⚠ EXISTING Python FastAPI on Cloud Run
 │   ├── main.py                              # Add new endpoints here
@@ -592,6 +600,10 @@ curl http://localhost:8001/health
 | GET | `/health` | — | Returns `{status: ok, version: 2.0.0}` |
 | GET | `/v2/airtable/projects` | pm | Contract Signed projects from Airtable, excluding existing Vendy projects |
 | GET | `/v2/gcs/projects` | pm | GCS project folders with DXF/PDF flags, excluding existing Vendy projects |
+| POST | `/v2/projects/from-airtable` | pm | Create v2 project from Airtable record — body: `{airtable_record_id}` |
+| POST | `/v2/projects/from-gcs` | pm | Create v2 project from GCS folder — multipart: folder_name, estimate_pdf, corrected_lines |
+| GET | `/v2/projects/{project_id}/dxf-status` | any | DXF presence + preprocess_status |
+| POST | `/v2/projects/{project_id}/preprocess` | pm | Run DXF pre-processor — writes SharedParams to dxf_sections/shared_params |
 
 ### Cloud Functions (GCP — not proxied)
 
