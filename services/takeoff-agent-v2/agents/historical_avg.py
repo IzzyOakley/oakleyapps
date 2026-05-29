@@ -27,7 +27,12 @@ class HistoricalAvgAgent(BaseAgent):
     Returns the median of all awarded avg extensions for this cost code.
     """
 
-    def run(self, shared_params: SharedParams, price_book_data: dict) -> AgentOutput:
+    def run(
+        self,
+        shared_params: SharedParams,
+        price_book_data: dict,
+        dxf_local_path: str | None = None,
+    ) -> AgentOutput:
         """
         price_book_data: {vendor_id: price_book_doc}
         price_book_doc has structure: {categories: {cost_code: {item_desc: {awarded: ...}}}}

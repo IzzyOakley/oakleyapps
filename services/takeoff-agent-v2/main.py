@@ -508,14 +508,14 @@ async def run_agent(
     Run the agent for a single cost code.
 
     Reads SharedParams from dxf_sections/shared_params, fetches vendor price books
-    for historical_avg agents, executes the agent, saves output to
-    cost_codes/{cost_code}, and logs the run to apps/vendy/runs.
+    for historical_avg agents, downloads the DXF for requires_dxf agents, executes
+    the agent, saves output to cost_codes/{cost_code}, and logs to apps/vendy/runs.
 
     agent_status in the response reflects the run outcome:
       complete         — agent ran and produced a result
       manual_required  — ManualHoldAgent; PM must enter value manually
       skipped          — SkipAgent; profit/non-takeoff item
-      failed           — formula error or unhandled exception
+      failed           — DXF missing / formula error / unhandled exception
 
     Returns 404 if the project or cost_code document is not found.
     Returns 409 if the project is locked.
@@ -547,26 +547,116 @@ async def run_agent(
     }
     shared_params = SharedParams(**filtered)
 
-    # Only fetch price books for historical_avg agents (avoids unnecessary reads).
     registry_entry = AGENT_REGISTRY.get(cost_code, {})
+    agent_type_name: str = registry_entry.get("agent_type", "unknown")
+
+    # Only fetch price books for historical_avg agents (avoids unnecessary reads).
     price_book_data: dict = {}
-    if registry_entry.get("agent_type") == "historical_avg":
+    if agent_type_name == "historical_avg":
         price_book_data = fs.get_vendor_price_books(cost_code)
 
-    agent = get_agent(cost_code)
+    # ── DXF download for requires_dxf agents ─────────────────────────────────
+    requires_dxf: bool = registry_entry.get("requires_dxf", False)
+    dxf_local_path: str | None = None
+    tmp_dxf: str | None = None
 
+    if requires_dxf:
+        dxf_gcs_path: str | None = project.get("dxf_gcs_path")
+        if not dxf_gcs_path:
+            dxf_info = gcs.check_dxf_present(project.get("job_name", project_id))
+            dxf_gcs_path = dxf_info.get("dxf_gcs_path")
+
+        if not dxf_gcs_path:
+            # No DXF available — fail without running the agent.
+            unit = registry_entry.get("agent_config", {}).get("unit")
+            output_dict = {
+                "quantity": None,
+                "unit": unit,
+                "output": None,
+                "source": agent_type_name,
+                "confidence": "low",
+                "notes": "DXF required but no DXF file found for this project.",
+                "flags": ["dxf_required_but_not_present"],
+            }
+            run_id = fs.log_run(
+                {
+                    "project_id": project_id,
+                    "cost_code": cost_code,
+                    "run_type": "agent_run",
+                    "agent_type": agent_type_name,
+                    "started_at": datetime.now(timezone.utc),
+                    "completed_at": datetime.now(timezone.utc),
+                    "duration_ms": 0,
+                    "status": "failed",
+                    "agent_status": "failed",
+                    "flags": ["dxf_required_but_not_present"],
+                    "triggered_by": user["email"],
+                }
+            )
+            fs.save_agent_output(project_id, cost_code, output_dict, run_id, "failed")
+            return {
+                "project_id": project_id,
+                "cost_code": cost_code,
+                "agent_status": "failed",
+                "run_id": run_id,
+                "agent_output": output_dict,
+            }
+
+        try:
+            tmp_dxf = gcs.download_dxf_to_temp(dxf_gcs_path)
+            dxf_local_path = tmp_dxf
+        except Exception as exc:
+            unit = registry_entry.get("agent_config", {}).get("unit")
+            flag = f"dxf_download_failed:{exc!s}"
+            output_dict = {
+                "quantity": None,
+                "unit": unit,
+                "output": None,
+                "source": agent_type_name,
+                "confidence": "low",
+                "notes": f"Failed to download DXF: {exc}",
+                "flags": [flag],
+            }
+            run_id = fs.log_run(
+                {
+                    "project_id": project_id,
+                    "cost_code": cost_code,
+                    "run_type": "agent_run",
+                    "agent_type": agent_type_name,
+                    "started_at": datetime.now(timezone.utc),
+                    "completed_at": datetime.now(timezone.utc),
+                    "duration_ms": 0,
+                    "status": "failed",
+                    "agent_status": "failed",
+                    "flags": [flag],
+                    "triggered_by": user["email"],
+                }
+            )
+            fs.save_agent_output(project_id, cost_code, output_dict, run_id, "failed")
+            return {
+                "project_id": project_id,
+                "cost_code": cost_code,
+                "agent_status": "failed",
+                "run_id": run_id,
+                "agent_output": output_dict,
+            }
+
+    # ── Run the agent ─────────────────────────────────────────────────────────
+    agent = get_agent(cost_code)
     started_at = datetime.now(timezone.utc)
     t0 = time.monotonic()
 
     try:
-        result = agent.run(shared_params, price_book_data)
+        result = agent.run(
+            shared_params, price_book_data, dxf_local_path=dxf_local_path
+        )
     except Exception as exc:
         run_id = fs.log_run(
             {
                 "project_id": project_id,
                 "cost_code": cost_code,
                 "run_type": "agent_run",
-                "agent_type": registry_entry.get("agent_type", "unknown"),
+                "agent_type": agent_type_name,
                 "started_at": started_at,
                 "completed_at": datetime.now(timezone.utc),
                 "duration_ms": round((time.monotonic() - t0) * 1000),
@@ -577,6 +667,9 @@ async def run_agent(
         )
         fs.save_agent_output(project_id, cost_code, {}, run_id, "failed")
         raise HTTPException(status_code=500, detail=f"Agent run failed: {exc}") from exc
+    finally:
+        if tmp_dxf and os.path.exists(tmp_dxf):
+            os.unlink(tmp_dxf)
 
     completed_at = datetime.now(timezone.utc)
     duration_ms = round((time.monotonic() - t0) * 1000)
@@ -588,7 +681,11 @@ async def run_agent(
         agent_status = "manual_required"
     elif result.source == "skip":
         agent_status = "skipped"
-    elif "formula_eval_error" in flags_str or "agent_type_not_implemented" in flags_str:
+    elif (
+        "formula_eval_error" in flags_str
+        or "agent_type_not_implemented" in flags_str
+        or "dxf_required_but_not_present" in flags_str
+    ):
         agent_status = "failed"
     else:
         agent_status = "complete"
@@ -598,7 +695,7 @@ async def run_agent(
             "project_id": project_id,
             "cost_code": cost_code,
             "run_type": "agent_run",
-            "agent_type": registry_entry.get("agent_type", "unknown"),
+            "agent_type": agent_type_name,
             "started_at": started_at,
             "completed_at": completed_at,
             "duration_ms": duration_ms,

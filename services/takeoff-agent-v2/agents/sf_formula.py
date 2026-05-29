@@ -33,7 +33,12 @@ class SFFormulaAgent(BaseAgent):
     quantity=0.0 (not an error) when input fields are 0.
     """
 
-    def run(self, shared_params: SharedParams, price_book_data: dict) -> AgentOutput:
+    def run(
+        self,
+        shared_params: SharedParams,
+        price_book_data: dict,
+        dxf_local_path: str | None = None,
+    ) -> AgentOutput:
         config = self.config
         formula: str = config.get("formula", "")
         unit: str = config.get("unit", "SF")

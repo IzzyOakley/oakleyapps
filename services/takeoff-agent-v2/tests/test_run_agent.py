@@ -172,12 +172,20 @@ def test_run_manual_hold():
 
 
 def test_run_unimplemented_dxf_type():
+    """
+    Cost code 1200 (dxf_geometry) requires_dxf=True.
+    When no DXF is present the endpoint fast-fails with dxf_required_but_not_present
+    before the agent even runs.
+    """
     cc_doc = {**_CC_DOC, "cost_code": "1200", "agent_type": "dxf_geometry"}
     with (
         patch("main.fs.get_v2_project", return_value=_OPEN_PROJECT),
         patch("main.fs.get_cost_code_doc", return_value=cc_doc),
         patch("main.fs.get_shared_params", return_value=_SHARED_PARAMS),
-        patch("main.fs.get_vendor_price_books", return_value={}),
+        patch(
+            "main.gcs.check_dxf_present",
+            return_value={"dxf_present": False, "dxf_gcs_path": None},
+        ),
         patch("main.fs.log_run", return_value="run-unimpl"),
         patch("main.fs.save_agent_output"),
     ):
@@ -186,7 +194,9 @@ def test_run_unimplemented_dxf_type():
     assert resp.status_code == 200
     body = resp.json()
     assert body["agent_status"] == "failed"
-    assert any("agent_type_not_implemented" in f for f in body["agent_output"]["flags"])
+    assert any(
+        "dxf_required_but_not_present" in f for f in body["agent_output"]["flags"]
+    )
 
 
 # ── 404 — project not found ───────────────────────────────────────────────────
