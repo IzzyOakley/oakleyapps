@@ -54,12 +54,17 @@ async function proxyToTakeoffAgentV2(
     if (idToken) headers['Authorization'] = `Bearer ${idToken}`
   }
 
-  const isFormData = req.headers.get('content-type')?.includes('multipart/form-data')
+  const reqContentType = req.headers.get('content-type') ?? ''
+  const isFormData = reqContentType.includes('multipart/form-data')
   let body: BodyInit | null = null
 
   if (!['GET', 'HEAD'].includes(req.method)) {
-    body = isFormData ? await req.blob() : await req.text()
-    if (!isFormData) {
+    if (isFormData) {
+      body = await req.blob()
+      // Must forward the original Content-Type so the multipart boundary is preserved
+      headers['Content-Type'] = reqContentType
+    } else {
+      body = await req.text()
       headers['Content-Type'] = 'application/json'
     }
   }
