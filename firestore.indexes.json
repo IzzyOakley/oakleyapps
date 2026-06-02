@@ -79,6 +79,15 @@
         { "fieldPath": "is_profit_item", "order": "ASCENDING" },
         { "fieldPath": "agent_status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "project_id", "order": "ASCENDING" },
+        { "fieldPath": "cost_code", "order": "ASCENDING" },
+        { "fieldPath": "started_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
