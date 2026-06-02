@@ -75,7 +75,7 @@ class AirtableClient:
             AIRTABLE_NEW_HOMES_TABLE,
             params={
                 "filterByFormula": "{Prelim Proposal Status}='Contract Signed'",
-                "fields[]": ["Job Name", "Reference Homes"],
+                "fields[]": ["Job Name", "Reference Home 1", "Reference Home 2", "Reference Home 3"],
             },
         )
 
@@ -86,12 +86,20 @@ class AirtableClient:
             job_name = (fields.get("Job Name") or fields.get("Name") or "").strip()
             if not job_name:
                 continue
+            # Collect reference home IDs from the three separate linked-record fields
+            ref_homes: list[str] = []
+            for key in ("Reference Home 1", "Reference Home 2", "Reference Home 3"):
+                val = fields.get(key)
+                if isinstance(val, list):
+                    ref_homes.extend(val)
+                elif isinstance(val, str) and val:
+                    ref_homes.append(val)
             result.append(
                 {
                     "record_id": r["id"],
                     "job_name": job_name,
-                    "address": fields.get("Address", ""),
-                    "reference_home_ids": fields.get("Reference Homes") or [],
+                    "address": "",
+                    "reference_home_ids": ref_homes,
                 }
             )
         return result
