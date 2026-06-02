@@ -145,7 +145,7 @@ class TestGetEstimateLines:
             "airtable_client.requests.get", return_value=_mock_response(records)
         ):
             client = AirtableClient()
-            result = client.get_estimate_lines("rec001")
+            result = client.get_estimate_lines("Bruce & Kim Radke")
 
         assert len(result) == 2
         assert result[0] == {"cost_code": "3600", "final_cost": 32000.0}
@@ -163,7 +163,7 @@ class TestGetEstimateLines:
             "airtable_client.requests.get", return_value=_mock_response(records)
         ):
             client = AirtableClient()
-            result = client.get_estimate_lines("rec001")
+            result = client.get_estimate_lines("Bruce & Kim Radke")
 
         assert len(result) == 1
         assert result[0]["cost_code"] == "3600"
@@ -178,7 +178,7 @@ class TestGetEstimateLines:
             "airtable_client.requests.get", return_value=_mock_response(records)
         ):
             client = AirtableClient()
-            result = client.get_estimate_lines("rec001")
+            result = client.get_estimate_lines("Bruce & Kim Radke")
 
         assert result[0]["final_cost"] == 0.0
 
@@ -192,6 +192,6 @@ class TestGetEstimateLines:
             "airtable_client.requests.get", return_value=_mock_response(records)
         ):
             client = AirtableClient()
-            result = client.get_estimate_lines("rec001")
+            result = client.get_estimate_lines("Bruce & Kim Radke")
 
         assert result[0]["final_cost"] == 0.0

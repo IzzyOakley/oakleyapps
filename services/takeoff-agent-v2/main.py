@@ -133,7 +133,7 @@ async def list_airtable_projects(
         if p["record_id"] in existing_ids:
             continue
         try:
-            lines = client.get_estimate_lines(p["record_id"])
+            lines = client.get_estimate_lines(p["job_name"])
         except HTTPException:
             lines = []
         result.append(

@@ -109,12 +109,12 @@ class AirtableClient:
             )
         return result
 
-    def get_estimate_lines(self, record_id: str) -> list[dict]:
-        """Fetch Estimated Cost Lines linked to a job record_id."""
+    def get_estimate_lines(self, job_name: str) -> list[dict]:
+        """Fetch Estimated Cost Lines linked to a job by its display name."""
         records = self._get(
             AIRTABLE_ESTIMATE_LINES_TABLE,
             params={
-                "filterByFormula": f"FIND('{record_id}', ARRAYJOIN({{New Home}}))",
+                "filterByFormula": f"{{New Home}} = '{job_name}'",
                 "fields[]": ["Cost Code", "Final Cost"],
             },
         )
