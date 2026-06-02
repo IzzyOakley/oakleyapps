@@ -114,7 +114,7 @@ class AirtableClient:
         records = self._get(
             AIRTABLE_ESTIMATE_LINES_TABLE,
             params={
-                "filterByFormula": f"FIND('{record_id}', ARRAYJOIN({{Job}}))",
+                "filterByFormula": f"FIND('{record_id}', ARRAYJOIN({{New Home}}))",
                 "fields[]": ["Cost Code", "Final Cost"],
             },
         )
