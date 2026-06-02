@@ -413,6 +413,75 @@ async def get_dxf_status(
     }
 
 
+# ── GET /v2/projects/{project_id}/dxf-layers (diagnostic) ───────────────────
+
+
+@app.get("/v2/projects/{project_id}/dxf-layers")
+async def get_dxf_layers(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Diagnostic: download the project DXF and return every unique layer name
+    and every unique INSERT block name found in modelspace.
+
+    Use this to calibrate agent_registry.py layer/block name config.
+    """
+    import ezdxf
+
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+
+    job_name = project.get("job_name", project_id)
+    dxf_gcs_path: str | None = project.get("dxf_gcs_path")
+    if not dxf_gcs_path:
+        dxf_info = gcs.check_dxf_present(job_name)
+        if not dxf_info["dxf_present"]:
+            raise HTTPException(
+                status_code=503,
+                detail=f"No DXF file found for project '{project_id}'.",
+            )
+        dxf_gcs_path = dxf_info["dxf_gcs_path"]
+
+    tmp_path = await asyncio.to_thread(gcs.download_dxf_to_temp, dxf_gcs_path)
+    try:
+        doc = ezdxf.readfile(tmp_path)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not parse DXF: {exc}")
+
+    layers: set[str] = set()
+    insert_blocks: set[str] = set()
+    total_entities = 0
+    total_inserts = 0
+
+    for entity in doc.modelspace():
+        total_entities += 1
+        try:
+            layer = (entity.dxf.layer or "").strip()
+            if layer:
+                layers.add(layer)
+        except Exception:
+            pass
+        if entity.dxftype() == "INSERT":
+            total_inserts += 1
+            try:
+                name = (entity.dxf.name or "").strip()
+                if name:
+                    insert_blocks.add(name)
+            except Exception:
+                pass
+
+    return {
+        "project_id": project_id,
+        "dxf_gcs_path": dxf_gcs_path,
+        "total_entities": total_entities,
+        "total_inserts": total_inserts,
+        "unique_layers": sorted(layers),
+        "unique_insert_block_names": sorted(insert_blocks),
+    }
+
+
 # ── POST /v2/projects/{project_id}/preprocess (9.2) ──────────────────────────
 
 
@@ -665,10 +734,21 @@ async def run_agent(
     tmp_dxf: str | None = None
 
     if requires_dxf:
-        dxf_gcs_path: str | None = project.get("dxf_gcs_path")
-        if not dxf_gcs_path:
-            dxf_info = gcs.check_dxf_present(project.get("job_name", project_id))
+        # Per-agent dxf_file_hint selects the correct DXF sheet (roof, fdn, elev, …).
+        # When a hint is set, always call check_dxf_present so we get the right file
+        # rather than the default stored on the project document.
+        file_hint: str | None = registry_entry.get("agent_config", {}).get("dxf_file_hint")
+        dxf_gcs_path: str | None = None
+        if file_hint:
+            dxf_info = gcs.check_dxf_present(
+                project.get("job_name", project_id), file_hint=file_hint
+            )
             dxf_gcs_path = dxf_info.get("dxf_gcs_path")
+        else:
+            dxf_gcs_path = project.get("dxf_gcs_path")
+            if not dxf_gcs_path:
+                dxf_info = gcs.check_dxf_present(project.get("job_name", project_id))
+                dxf_gcs_path = dxf_info.get("dxf_gcs_path")
 
         if not dxf_gcs_path:
             # No DXF available — fail without running the agent.
@@ -801,33 +881,47 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
     cost_code_docs = await asyncio.to_thread(fs.get_all_cost_code_docs, project_id)
     all_price_books = await asyncio.to_thread(fs.get_vendor_price_books)
 
-    # ── DXF: download once for all requires_dxf agents ───────────────────────
-    dxf_local_path: str | None = None
-    tmp_dxf: str | None = None
+    # ── DXF: download once per unique file hint (roof, fdn, elev, or default) ──
+    # Each agent may declare a dxf_file_hint in its config to target a specific
+    # DXF sheet.  We collect all unique hints, download each file once, then
+    # pass the correct local path to every agent.
+    dxf_cache: dict[str | None, str | None] = {}  # hint → local tmp path (or None)
+    tmp_dxf_files: list[str] = []
 
-    needs_dxf = any(
-        AGENT_REGISTRY.get(doc.get("cost_code", ""), {}).get("requires_dxf", False)
-        for doc in cost_code_docs
-    )
+    hints_needed: set[str | None] = set()
+    for doc in cost_code_docs:
+        reg = AGENT_REGISTRY.get(doc.get("cost_code", ""), {})
+        if reg.get("requires_dxf", False):
+            hint = reg.get("agent_config", {}).get("dxf_file_hint")
+            hints_needed.add(hint)
 
-    if needs_dxf:
-        dxf_gcs_path: str | None = project.get("dxf_gcs_path")
-        if not dxf_gcs_path:
-            dxf_info = await asyncio.to_thread(
-                gcs.check_dxf_present, project.get("job_name", project_id)
+    job_name = project.get("job_name", project_id)
+    for hint in hints_needed:
+        dxf_gcs_path_h: str | None = None
+        if hint:
+            dxf_info_h = await asyncio.to_thread(
+                gcs.check_dxf_present, job_name, file_hint=hint
             )
-            dxf_gcs_path = dxf_info.get("dxf_gcs_path")
+            dxf_gcs_path_h = dxf_info_h.get("dxf_gcs_path")
+        else:
+            stored = project.get("dxf_gcs_path")
+            if stored:
+                dxf_gcs_path_h = stored
+            else:
+                dxf_info_h = await asyncio.to_thread(gcs.check_dxf_present, job_name)
+                dxf_gcs_path_h = dxf_info_h.get("dxf_gcs_path")
 
-        if dxf_gcs_path:
+        if dxf_gcs_path_h:
             try:
-                tmp_dxf = await asyncio.to_thread(
-                    gcs.download_dxf_to_temp, dxf_gcs_path
+                local = await asyncio.to_thread(
+                    gcs.download_dxf_to_temp, dxf_gcs_path_h
                 )
-                dxf_local_path = tmp_dxf
+                dxf_cache[hint] = local
+                tmp_dxf_files.append(local)
             except Exception:
-                dxf_local_path = (
-                    None  # agents will each report no_dxf_path / dxf_read_error
-                )
+                dxf_cache[hint] = None  # agents will report dxf_read_error
+        else:
+            dxf_cache[hint] = None
 
     # ── Parallel agent execution ──────────────────────────────────────────────
     semaphore = asyncio.Semaphore(10)
@@ -839,6 +933,7 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
         reg = AGENT_REGISTRY.get(code, {})
         requires_dxf = reg.get("requires_dxf", False)
         agent_type = reg.get("agent_type", "unknown")
+        hint = reg.get("agent_config", {}).get("dxf_file_hint")
 
         # Filter price books for this code if needed by agent type
         pb_data: dict = {}
@@ -849,7 +944,7 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
                 if code in pb.get("categories", {})
             }
 
-        effective_dxf = dxf_local_path if requires_dxf else None
+        effective_dxf = dxf_cache.get(hint) if requires_dxf else None
 
         async with semaphore:
             await asyncio.to_thread(
@@ -865,8 +960,9 @@ async def _run_all_background(project_id: str, triggered_by: str) -> None:
     try:
         await asyncio.gather(*[_run_one(doc) for doc in cost_code_docs])
     finally:
-        if tmp_dxf and os.path.exists(tmp_dxf):
-            os.unlink(tmp_dxf)
+        for tmp in tmp_dxf_files:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
     # ── Mark complete ─────────────────────────────────────────────────────────
     await asyncio.to_thread(fs.update_v2_project_status, project_id, "complete")

@@ -88,14 +88,39 @@ def _scan_project_folders() -> list[GCSProject]:
     ]
 
 
-def check_dxf_present(job_name: str) -> dict:
-    """Check if a DXF file exists under projects/{job_name}/blueprints/."""
+def check_dxf_present(job_name: str, file_hint: str | None = None) -> dict:
+    """Check if a DXF file exists under projects/{job_name}/blueprints/.
+
+    file_hint — optional keyword to prefer a specific DXF sheet, e.g. "roof",
+    "fdn", "elev", "pl1".  Files whose names contain the hint (case-insensitive)
+    are chosen first.  When no hint is given the function prefers first-floor
+    plan sheets ("pl1") over others, so count agents get the richest file by
+    default instead of whatever comes first alphabetically.
+    """
     client = get_client()
     prefix = f"projects/{job_name}/blueprints/"
-    for blob in client.list_blobs(BUCKET_NAME, prefix=prefix):
-        if blob.name.lower().endswith(".dxf"):
-            return {"dxf_present": True, "dxf_gcs_path": blob.name}
-    return {"dxf_present": False, "dxf_gcs_path": None}
+    all_dxf = sorted(
+        b.name
+        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if b.name.lower().endswith(".dxf")
+    )
+    if not all_dxf:
+        return {"dxf_present": False, "dxf_gcs_path": None}
+
+    # 1. Explicit hint takes priority
+    if file_hint:
+        matches = [p for p in all_dxf if file_hint.lower() in p.lower()]
+        if matches:
+            return {"dxf_present": True, "dxf_gcs_path": matches[0]}
+
+    # 2. Default preference: pl1 (most entities) > pl2 > any
+    for pref in ("pl1", "plan1", "p1", "pl2", "plan2"):
+        matches = [p for p in all_dxf if pref in p.lower()]
+        if matches:
+            return {"dxf_present": True, "dxf_gcs_path": matches[0]}
+
+    # 3. First alphabetically
+    return {"dxf_present": True, "dxf_gcs_path": all_dxf[0]}
 
 
 def download_dxf_to_temp(gcs_path: str) -> str:

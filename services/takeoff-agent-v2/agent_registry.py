@@ -1,6 +1,7 @@
 # Agent registry — maps cost_code → agent definition.
 # agent_type values: sf_formula | dxf_count | dxf_area | dxf_geometry | project_flag | historical_avg | manual_hold | skip
-# Layer names in agent_config are best-guess defaults — UPDATE from real DXF files in Phase 16.
+# Layer names calibrated from real Oakley DXF files (Madison Morrissey, Lot 6, Lot 7) — Phase 16.
+# dxf_file_hint selects the correct DXF sheet when a project has multiple files.
 # requires_dxf=False agents run without a DXF file present.
 
 AGENT_REGISTRY: dict[str, dict] = {
@@ -25,15 +26,14 @@ AGENT_REGISTRY: dict[str, dict] = {
             "depth_factor": 0.125,  # CY per SF — calibrate from pilot
         },
     },
+    # 1200: Foundation walls are drawn as LINE entities in Oakley DXFs, not LWPOLYLINE.
+    # dxf_geometry requires LWPOLYLINE — switch to historical_avg until LINE perimeter
+    # support is added.
     "1200": {
-        "agent_class_name": "FoundationDXFGeometryAgent",
-        "agent_type": "dxf_geometry",
-        "requires_dxf": True,
-        "agent_config": {
-            "geometry_type": "perimeter",
-            "target_layers": ["A-WALL-FNDN", "A-FNDTN", "S-FNDN"],
-            "unit": "CY",
-        },
+        "agent_class_name": "FoundationHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "CY"},
     },
     "1300": {
         "agent_class_name": "FramingLaborSFFormulaAgent",
@@ -56,45 +56,50 @@ AGENT_REGISTRY: dict[str, dict] = {
             "lumber_factor": 6.0,  # BF per SF — calibrate from pilot
         },
     },
+    # 1500: Steel beams appear as INSERT blocks named W6X*, W8X*, etc. on any layer.
+    # Use fdn.dxf — structural beams are shown on the foundation/structural plan.
     "1500": {
         "agent_class_name": "StructuralSteelDXFCountAgent",
         "agent_type": "dxf_count",
         "requires_dxf": True,
         "agent_config": {
-            "target_layers": ["S-BEAM", "S-COL", "S-STRU"],
-            "block_name_patterns": ["BEAM", "COLUMN", "W_BEAM", "HSS"],
+            "target_layers": [],  # any layer — beam blocks are not layer-isolated
+            "block_name_patterns": ["W6X", "W8X", "W10X", "W12X", "W14X", "W16X"],
             "unit": "EA",
+            "dxf_file_hint": "fdn",
         },
     },
+    # 1600: Roof outline is layer EXT-TRIM-3 (closed LWPOLYLINE) on the roof DXF.
     "1600": {
         "agent_class_name": "RoofingDXFGeometryAgent",
         "agent_type": "dxf_geometry",
         "requires_dxf": True,
         "agent_config": {
             "geometry_type": "roof_area",
-            "target_layers": ["A-ROOF", "A-ROOF-OTLN", "A-ROOF-PLAN"],
+            "target_layers": ["EXT-TRIM-3"],
             "default_pitch": "8/12",
             "unit": "SQ",
+            "dxf_file_hint": "roof",
         },
     },
+    # 1700: Siding area has no closed LWPOLYLINE in Oakley elevation DXFs.
+    # Switch to historical_avg until elevation parsing improves.
     "1700": {
-        "agent_class_name": "SidingDXFGeometryAgent",
-        "agent_type": "dxf_geometry",
-        "requires_dxf": True,
-        "agent_config": {
-            "geometry_type": "wall_area",
-            "target_layers": ["A-WALL-EXTR", "A-ELEV"],
-            "unit": "SF",
-        },
+        "agent_class_name": "SidingHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "SF"},
     },
+    # 1800: Stone and brick hatches on elevation DXF use EXT-HATCH-STONE / EXT-HATCH-BRICK.
     "1800": {
         "agent_class_name": "MasonryDXFAreaAgent",
         "agent_type": "dxf_area",
         "requires_dxf": True,
         "agent_config": {
-            "target_layers": ["A-WALL-MSNR", "A-FINSH-MSNR", "A-STONE"],
+            "target_layers": ["EXT-HATCH-STONE", "EXT-HATCH-BRICK"],
             "min_area_sf": 5.0,
             "unit": "SF",
+            "dxf_file_hint": "elev",
         },
     },
     "1900": {
@@ -103,50 +108,33 @@ AGENT_REGISTRY: dict[str, dict] = {
         "requires_dxf": False,
         "agent_config": {"unit": "LS"},
     },
+    # 2000: Windows are drawn as LINE entities on EXT-WINDOW — no INSERT blocks.
+    # Switch to historical_avg.
     "2000": {
-        "agent_class_name": "WindowsDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-GLAZ", "A-WIND", "A-WINDOW"],
-            "block_name_patterns": ["WIN", "WINDOW", "GLAZ", "WND"],
-            "unit": "EA",
-        },
+        "agent_class_name": "WindowsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "EA"},
     },
+    # 2100-2300: Exterior / front / garage doors are not layer-separated from interior
+    # doors in Oakley DXFs — can't reliably distinguish. Switch to historical_avg.
     "2100": {
-        "agent_class_name": "ExteriorDoorsDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-DOOR", "A-DOOR-EXT"],
-            "block_name_patterns": ["DOOR_EXT", "EXT_DOOR", "DR_EXT"],
-            "unit": "EA",
-        },
+        "agent_class_name": "ExteriorDoorsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "EA"},
     },
     "2200": {
-        "agent_class_name": "FrontDoorDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-DOOR", "A-DOOR-FRONT"],
-            "block_name_patterns": [
-                "DOOR_FRONT",
-                "FRONT_DOOR",
-                "DR_FRONT",
-                "ENTRY_DOOR",
-            ],
-            "unit": "EA",
-        },
+        "agent_class_name": "FrontDoorHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "EA"},
     },
     "2300": {
-        "agent_class_name": "GarageDoorDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-DOOR-GAR", "A-GARAGE-DOOR"],
-            "block_name_patterns": ["GARAGE_DOOR", "GAR_DR", "OVERHEAD_DOOR"],
-            "unit": "EA",
-        },
+        "agent_class_name": "GarageDoorHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "EA"},
     },
     "2400": {
         "agent_class_name": "InsulationSFFormulaAgent",
@@ -169,13 +157,15 @@ AGENT_REGISTRY: dict[str, dict] = {
             "unit": "SF",
         },
     },
+    # 2600: All door openings are INSERT blocks on layer STD-OPENING.
+    # Block names observed: DOOR, DR1H variants.
     "2600": {
         "agent_class_name": "InteriorDoorsDXFCountAgent",
         "agent_type": "dxf_count",
         "requires_dxf": True,
         "agent_config": {
-            "target_layers": ["A-DOOR-INT", "A-DOOR"],
-            "block_name_patterns": ["DOOR_INT", "INT_DOOR", "DR_INT"],
+            "target_layers": ["STD-OPENING"],
+            "block_name_patterns": ["DOOR", "DR1H"],
             "unit": "EA",
         },
     },
@@ -185,105 +175,92 @@ AGENT_REGISTRY: dict[str, dict] = {
         "requires_dxf": False,
         "agent_config": {"unit": "LS"},
     },
+    # 2800-2900: Cabinets and countertops are drawn as LINE entities on STD-CABINET /
+    # STD-COUNTER — no INSERT blocks to count. Switch to historical_avg.
     "2800": {
-        "agent_class_name": "CabinetsDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FURN-CASE", "A-CASEWORK", "A-CABINET"],
-            "block_name_patterns": ["CAB", "CABINET", "CASEWORK", "CASE"],
-            "unit": "LF",
-        },
+        "agent_class_name": "CabinetsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "LF"},
     },
     "2900": {
-        "agent_class_name": "CountertopsDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FURN-CASE", "A-CASEWORK"],
-            "block_name_patterns": ["CTRTP", "COUNTERTOP", "CTR_TOP"],
-            "unit": "LF",
-        },
+        "agent_class_name": "CountertopsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "LF"},
     },
+    # 3000-3300: Flooring types (hardwood, tile, carpet) have no polygon or hatch areas
+    # in Oakley plan DXFs. Switch to historical_avg.
     "3000": {
-        "agent_class_name": "HardwoodDXFAreaAgent",
-        "agent_type": "dxf_area",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FINSH-HARD", "A-FLOOR-WOOD", "A-HARDWOOD"],
-            "min_area_sf": 5.0,
-            "unit": "SF",
-        },
+        "agent_class_name": "HardwoodHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "SF"},
     },
     "3100": {
-        "agent_class_name": "TileMaterialsDXFAreaAgent",
-        "agent_type": "dxf_area",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FINSH-TILE", "A-FLOOR-TILE", "A-TILE"],
-            "min_area_sf": 5.0,
-            "unit": "SF",
-        },
+        "agent_class_name": "TileMaterialsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "SF"},
     },
     "3200": {
-        "agent_class_name": "TileInstallationDXFAreaAgent",
-        "agent_type": "dxf_area",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FINSH-TILE", "A-FLOOR-TILE", "A-TILE"],
-            "min_area_sf": 5.0,
-            "unit": "SF",
-        },
+        "agent_class_name": "TileInstallationHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "SF"},
     },
     "3300": {
-        "agent_class_name": "CarpetDXFAreaAgent",
-        "agent_type": "dxf_area",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FINSH-CARP", "A-FLOOR-CARP", "A-CARPET"],
-            "min_area_sf": 5.0,
-            "unit": "SY",
-        },
+        "agent_class_name": "CarpetHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "SY"},
     },
+    # 3400: Stair arrows on STD-STAIR are directional symbols, not flight-count markers.
+    # Arrow count does not equal flight count. Switch to historical_avg.
     "3400": {
-        "agent_class_name": "StairsDXFCountAgent",
-        "agent_type": "dxf_count",
-        "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-STRS", "A-STAIR"],
-            "block_name_patterns": ["STAIR", "STAIRS", "STR"],
-            "unit": "Flight",
-        },
+        "agent_class_name": "StairsHistoricalAvgAgent",
+        "agent_type": "historical_avg",
+        "requires_dxf": False,
+        "agent_config": {"unit": "Flight"},
     },
+    # 3500: Eave perimeter is layer EXT-TRIM-3 (same outline used for roof area).
     "3500": {
         "agent_class_name": "GuttersDXFGeometryAgent",
         "agent_type": "dxf_geometry",
         "requires_dxf": True,
         "agent_config": {
             "geometry_type": "eave_perimeter",
-            "target_layers": ["A-ROOF", "A-ROOF-OTLN", "A-EAVE"],
+            "target_layers": ["EXT-TRIM-3"],
             "unit": "LF",
+            "dxf_file_hint": "roof",
         },
     },
+    # 3600: Plumbing fixtures are INSERT blocks on STD-PLUMB-FIX (toilets, sinks, tubs,
+    # showers) and STD-PLUMB-FLUSH (flush valves), STD-OPTL (optional items like ice
+    # makers, bar sinks). Block names observed across Madison, Lot 6, Lot 7.
     "3600": {
         "agent_class_name": "PlumbingDXFCountAgent",
         "agent_type": "dxf_count",
         "requires_dxf": True,
         "agent_config": {
-            "target_layers": ["P-FIXT", "P-PLMB", "PLUMBING"],
+            "target_layers": [
+                "STD-PLUMB-FIX",
+                "A-PLUMB-FIX",
+                "STD-PLUMB-FLUSH",
+                "STD-OPTL",
+            ],
             "block_name_patterns": [
-                "BATH_FULL",
-                "BATH_HALF",
-                "TOILET",
-                "SINK",
+                "wc-std",
+                "b-lav-std",
+                "b-tub-std",
+                "shwr",
                 "TUB",
-                "SHOWER",
-                "WH",
-                "HOSE_BIB",
-                "LAVATORY",
-                "LAV",
-                "WC",
-                "HB",
+                "OVALTUB",
+                "SINGBOWLSINK",
+                "VEGSINK",
+                "kit sing bowl",
+                "K-DBLOV",
+                "plunge",
             ],
             "unit": "Fix",
         },
@@ -316,22 +293,24 @@ AGENT_REGISTRY: dict[str, dict] = {
             "unit": "LS",
         },
     },
+    # 4000: Appliances are INSERT blocks on layer STD-APPLIANCE.
+    # Block names observed: washer/dryer combos, dishwasher, refrigerators, ranges, ice makers.
     "4000": {
         "agent_class_name": "AppliancesDXFCountAgent",
         "agent_type": "dxf_count",
         "requires_dxf": True,
         "agent_config": {
-            "target_layers": ["A-EQPM", "A-APPL", "A-KITCHEN"],
+            "target_layers": ["STD-APPLIANCE"],
             "block_name_patterns": [
-                "FRIDGE",
-                "REFRIGERATOR",
+                "l-wd-sbs-std",
+                "stack-wd",
+                "k-dw-std",
+                "k-ref",
+                "k-ucabref",
+                "ICEMKR",
+                "BIGRANGE",
                 "RANGE",
-                "DISHWASHER",
-                "OVEN",
-                "MICROWAVE",
-                "WASHER",
-                "DRYER",
-                "HOOD",
+                "wd",
             ],
             "unit": "EA",
         },
@@ -381,15 +360,13 @@ AGENT_REGISTRY: dict[str, dict] = {
         "requires_dxf": False,
         "agent_config": {"unit": "LS"},
     },
+    # 4700: Fireplace presence cannot be reliably detected from a fixed block name —
+    # use ProjectFlagAgent (Claude text scan of DXF labels) instead.
     "4700": {
-        "agent_class_name": "FireplaceDXFCountAgent",
-        "agent_type": "dxf_count",
+        "agent_class_name": "FireplaceProjectFlagAgent",
+        "agent_type": "project_flag",
         "requires_dxf": True,
-        "agent_config": {
-            "target_layers": ["A-FPCE", "A-FIREPLACE"],
-            "block_name_patterns": ["FIREPLACE", "FP", "FPCE"],
-            "unit": "EA",
-        },
+        "agent_config": {"feature": "fireplace", "unit": "EA"},
     },
     "4800": {
         "agent_class_name": "ArchLightingManualHoldAgent",
@@ -400,7 +377,7 @@ AGENT_REGISTRY: dict[str, dict] = {
             "unit": "LS",
         },
     },
-    # ── Project-Flag agents (Phase 12) ────────────────────────────────────────
+    # ── Project-Flag agents ────────────────────────────────────────────────────
     # Detect optional features by scanning DXF text corpus with Claude.
     # quantity=1 if present, 0 if absent.  Layer names N/A — text-based only.
     "4900": {
