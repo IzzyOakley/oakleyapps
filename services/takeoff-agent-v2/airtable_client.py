@@ -75,7 +75,12 @@ class AirtableClient:
             AIRTABLE_NEW_HOMES_TABLE,
             params={
                 "filterByFormula": "{Prelim Proposal Status}='Contract Signed'",
-                "fields[]": ["Job Name", "Reference Home 1", "Reference Home 2", "Reference Home 3"],
+                "fields[]": [
+                    "Job Name",
+                    "Reference Home 1",
+                    "Reference Home 2",
+                    "Reference Home 3",
+                ],
             },
         )
 

@@ -34,16 +34,14 @@ class TestGetContractSignedProjects:
                     "id": "rec001",
                     "fields": {
                         "Job Name": "701 Hill - Malesevic",
-                        "Address": "701 Hill Road",
-                        "Reference Homes": ["recABC", "recDEF"],
+                        "Reference Home 1": ["recABC"],
+                        "Reference Home 2": ["recDEF"],
                     },
                 },
                 {
                     "id": "rec002",
                     "fields": {
                         "Job Name": "500 Oak - Hartley",
-                        "Address": "500 Oak Street",
-                        "Reference Homes": [],
                     },
                 },
             ]
@@ -57,7 +55,7 @@ class TestGetContractSignedProjects:
         assert len(result) == 2
         assert result[0]["record_id"] == "rec001"
         assert result[0]["job_name"] == "701 Hill - Malesevic"
-        assert result[0]["address"] == "701 Hill Road"
+        assert result[0]["address"] == ""
         assert result[0]["reference_home_ids"] == ["recABC", "recDEF"]
 
     def test_skips_records_without_job_name(self):
