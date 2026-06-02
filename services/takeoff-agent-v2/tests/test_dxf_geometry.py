@@ -404,10 +404,13 @@ def test_pitch_factor_10_12():
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 
-def test_factory_foundation_geometry():
+def test_factory_foundation_now_historical_avg():
+    # 1200 Foundation switched to historical_avg — walls are LINE entities,
+    # not LWPOLYLINE, so dxf_geometry perimeter cannot be measured.
+    from agents.historical_avg import HistoricalAvgAgent
+
     agent = get_agent("1200")
-    assert isinstance(agent, DXFGeometryAgent)
-    assert agent.config["geometry_type"] == "perimeter"
+    assert isinstance(agent, HistoricalAvgAgent)
 
 
 def test_factory_roofing_geometry():
@@ -416,10 +419,12 @@ def test_factory_roofing_geometry():
     assert agent.config["geometry_type"] == "roof_area"
 
 
-def test_factory_siding_geometry():
+def test_factory_siding_now_historical_avg():
+    # 1700 Siding switched to historical_avg — no closed LWPOLY in elevation DXFs.
+    from agents.historical_avg import HistoricalAvgAgent
+
     agent = get_agent("1700")
-    assert isinstance(agent, DXFGeometryAgent)
-    assert agent.config["geometry_type"] == "wall_area"
+    assert isinstance(agent, HistoricalAvgAgent)
 
 
 def test_factory_gutters_geometry():

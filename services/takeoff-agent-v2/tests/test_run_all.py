@@ -49,7 +49,9 @@ _OPEN_PROJECT = {
 }
 _LOCKED_PROJECT = {**_OPEN_PROJECT, "locked": True}
 
-# Two minimal cost_code docs — one requires_dxf, one does not
+# Two minimal cost_code docs — one requires_dxf, one does not.
+# 2000 Windows was moved to historical_avg in Phase 16; use 3600 Plumbing
+# (dxf_count, requires_dxf=True) to keep the requires_dxf branch exercised.
 _CC_DOCS = [
     {
         "cost_code": "2500",
@@ -58,8 +60,8 @@ _CC_DOCS = [
         "agent_status": "pending",
     },
     {
-        "cost_code": "2000",
-        "cost_code_name": "Windows",
+        "cost_code": "3600",
+        "cost_code_name": "Plumbing",
         "agent_type": "dxf_count",
         "agent_status": "pending",
     },
@@ -180,7 +182,7 @@ def test_background_calls_execute_for_each_code():
     ):
         asyncio.run(_run_all_background("proj_run_all", "pm@oakleyhomebuilders.com"))
 
-    assert set(executed_codes) == {"2500", "2000"}
+    assert set(executed_codes) == {"2500", "3600"}
 
 
 def test_background_no_dxf_passes_none_to_dxf_agents():
@@ -212,9 +214,9 @@ def test_background_no_dxf_passes_none_to_dxf_agents():
     ):
         asyncio.run(_run_all_background("proj_run_all", "pm@oakleyhomebuilders.com"))
 
-    # 2000 is requires_dxf — should get None since no DXF in project
-    path_for_2000 = next(p for code, p in dxf_paths_seen if code == "2000")
-    assert path_for_2000 is None
+    # 3600 is requires_dxf — should get None since no DXF in project
+    path_for_3600 = next(p for code, p in dxf_paths_seen if code == "3600")
+    assert path_for_3600 is None
     # 2500 is NOT requires_dxf — always None
     path_for_2500 = next(p for code, p in dxf_paths_seen if code == "2500")
     assert path_for_2500 is None

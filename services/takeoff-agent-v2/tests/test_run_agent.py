@@ -168,16 +168,16 @@ def test_run_manual_hold():
     assert body["agent_output"]["source"] == "manual"
 
 
-# ── 200 — unimplemented dxf_geometry → agent_status = failed ─────────────────
+# ── 200 — requires_dxf agent with no DXF present → agent_status = failed ──────
 
 
-def test_run_unimplemented_dxf_type():
+def test_run_requires_dxf_but_no_dxf_present():
     """
-    Cost code 1200 (dxf_geometry) requires_dxf=True.
+    Cost code 3600 (Plumbing, dxf_count) requires_dxf=True.
     When no DXF is present the endpoint fast-fails with dxf_required_but_not_present
-    before the agent even runs.
+    before the agent even runs.  (1200 Foundation was moved to historical_avg.)
     """
-    cc_doc = {**_CC_DOC, "cost_code": "1200", "agent_type": "dxf_geometry"}
+    cc_doc = {**_CC_DOC, "cost_code": "3600", "agent_type": "dxf_count"}
     with (
         patch("main.fs.get_v2_project", return_value=_OPEN_PROJECT),
         patch("main.fs.get_cost_code_doc", return_value=cc_doc),
@@ -186,10 +186,10 @@ def test_run_unimplemented_dxf_type():
             "main.gcs.check_dxf_present",
             return_value={"dxf_present": False, "dxf_gcs_path": None},
         ),
-        patch("main.fs.log_run", return_value="run-unimpl"),
+        patch("main.fs.log_run", return_value="run-no-dxf"),
         patch("main.fs.save_agent_output"),
     ):
-        resp = _run(cost_code="1200")
+        resp = _run(cost_code="3600")
 
     assert resp.status_code == 200
     body = resp.json()

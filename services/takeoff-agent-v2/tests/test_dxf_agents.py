@@ -423,40 +423,56 @@ class TestDXFAreaAgent:
 # ── Factory — dxf_count and dxf_area now implemented ─────────────────────────
 
 
-def test_factory_dxf_count_windows():
-    agent = get_agent("2000")  # Windows
+def test_factory_dxf_count_doors():
+    # 2600 Interior Doors is still dxf_count (layer STD-OPENING)
+    agent = get_agent("2600")
     assert isinstance(agent, DXFCountAgent)
 
 
 def test_factory_dxf_count_plumbing():
-    agent = get_agent("3600")  # Plumbing
+    agent = get_agent("3600")  # Plumbing — still dxf_count
     assert isinstance(agent, DXFCountAgent)
 
 
-def test_factory_dxf_area_hardwood():
-    agent = get_agent("3000")  # Hardwood
+def test_factory_dxf_area_masonry():
+    # 1800 Masonry is still dxf_area (EXT-HATCH-STONE / EXT-HATCH-BRICK)
+    from agents.dxf_area import DXFAreaAgent
+
+    agent = get_agent("1800")
     assert isinstance(agent, DXFAreaAgent)
 
 
-def test_factory_dxf_area_carpet():
-    agent = get_agent("3300")  # Carpet
-    assert isinstance(agent, DXFAreaAgent)
+def test_factory_hardwood_now_historical_avg():
+    # 3000 Hardwood switched to historical_avg — no polygon data in plan DXFs
+    from agents.historical_avg import HistoricalAvgAgent
+
+    agent = get_agent("3000")
+    assert isinstance(agent, HistoricalAvgAgent)
+
+
+def test_factory_carpet_now_historical_avg():
+    # 3300 Carpet switched to historical_avg — no polygon data in plan DXFs
+    from agents.historical_avg import HistoricalAvgAgent
+
+    agent = get_agent("3300")
+    assert isinstance(agent, HistoricalAvgAgent)
 
 
 def test_factory_dxf_geometry_now_implemented():
-    """dxf_geometry was Phase 12 — now returns DXFGeometryAgent."""
+    """dxf_geometry was Phase 12 — 1600 Roofing still returns DXFGeometryAgent."""
     from agents.dxf_geometry import DXFGeometryAgent
 
-    agent = get_agent("1200")  # Foundation (dxf_geometry)
+    agent = get_agent("1600")  # Roofing — still dxf_geometry
     assert isinstance(agent, DXFGeometryAgent)
-    assert agent.config["geometry_type"] == "perimeter"
+    assert agent.config["geometry_type"] == "roof_area"
 
 
 # ── Run endpoint — dxf_required_but_not_present ───────────────────────────────
 
 
 def test_run_dxf_required_but_no_dxf():
-    """When a dxf_count agent runs but the project has no DXF, return failed."""
+    """When a dxf_count agent (3600 Plumbing) runs but the project has no DXF,
+    the endpoint fast-fails with dxf_required_but_not_present."""
     from main import app
 
     client = TestClient(app, raise_server_exceptions=False)
@@ -472,7 +488,7 @@ def test_run_dxf_required_but_no_dxf():
         "dxf_gcs_path": None,
         "preprocess_status": None,
     }
-    cc_doc = {"cost_code": "2000", "agent_type": "dxf_count", "agent_status": "pending"}
+    cc_doc = {"cost_code": "3600", "agent_type": "dxf_count", "agent_status": "pending"}
 
     with (
         patch("main.fs.get_v2_project", return_value=project_no_dxf),
@@ -486,7 +502,7 @@ def test_run_dxf_required_but_no_dxf():
         patch("main.fs.save_agent_output"),
     ):
         resp = client.post(
-            "/v2/projects/no_dxf_proj/run/2000",
+            "/v2/projects/no_dxf_proj/run/3600",
             headers=headers,
         )
 
