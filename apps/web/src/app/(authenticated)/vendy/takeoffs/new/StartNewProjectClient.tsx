@@ -49,7 +49,7 @@ export default function StartNewProjectClient() {
           Start a New Project
         </h1>
         <p className="text-[13px] text-text-secondary mt-1">
-          Choose a source to import project details and estimate data.
+          Import a project and prepare it for takeoff review and bid generation.
         </p>
       </div>
 
@@ -65,7 +65,7 @@ export default function StartNewProjectClient() {
                 : 'text-text-muted hover:text-text-secondary'
             }`}
           >
-            {t === 'airtable' ? 'From Airtable' : 'From GCS / Historical'}
+            {t === 'airtable' ? 'Recently Contracted Projects' : 'Older Projects'}
           </button>
         ))}
       </div>
@@ -142,7 +142,7 @@ function AirtableTab({ onCreated }: { onCreated: (id: string) => void }) {
   return (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
-        Contract Signed — not yet in Vendy
+        Select a project to import
       </p>
       <div className="space-y-2 mb-5">
         {projects.map(p => (
@@ -319,7 +319,7 @@ function GCSTab({ onCreated }: { onCreated: (id: string) => void }) {
     return (
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
-          GCS project folders
+          Available project folders
         </p>
         {folders.length === 0 ? (
           <p className="text-center py-16 text-[13px] text-text-muted">
