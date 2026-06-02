@@ -431,7 +431,9 @@ async def get_dxf_layers(
 
     project = fs.get_v2_project(project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
 
     job_name = project.get("job_name", project_id)
     dxf_gcs_path: str | None = project.get("dxf_gcs_path")
@@ -737,7 +739,9 @@ async def run_agent(
         # Per-agent dxf_file_hint selects the correct DXF sheet (roof, fdn, elev, …).
         # When a hint is set, always call check_dxf_present so we get the right file
         # rather than the default stored on the project document.
-        file_hint: str | None = registry_entry.get("agent_config", {}).get("dxf_file_hint")
+        file_hint: str | None = registry_entry.get("agent_config", {}).get(
+            "dxf_file_hint"
+        )
         dxf_gcs_path: str | None = None
         if file_hint:
             dxf_info = gcs.check_dxf_present(
