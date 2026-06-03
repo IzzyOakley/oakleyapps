@@ -296,6 +296,7 @@ def save_agent_output(
             "source": agent_output.get("source"),
             "notes": agent_output.get("notes"),
             "flags": agent_output.get("flags", []),
+            "agent_type": agent_output.get("agent_type"),
             "updated_at": now,
         },
     )

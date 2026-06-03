@@ -5,14 +5,26 @@ import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   CheckCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Database,
+  DoorOpen,
+  Droplets,
+  Grid3x3,
+  Home,
+  Layers,
   Loader2,
   Lock,
+  Package,
+  PaintBucket,
   Play,
+  Shovel,
+  Star,
+  Wrench,
+  Zap,
 } from 'lucide-react'
-import { approveTakeoffV2, getV2Project, runAllAgents } from '@/lib/vendy/takeoffs-v2-api'
+import { approveTakeoffV2, getV2Project, runAllAgents, runPreprocess } from '@/lib/vendy/takeoffs-v2-api'
 import type { V2CostCodeDoc, V2ProjectDetail } from '@/lib/vendy/types'
 
 interface Props {
@@ -53,6 +65,7 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
   const [project, setProject] = useState<V2ProjectDetail>(initialProject)
   const [runAllLoading, setRunAllLoading] = useState(false)
   const [approveLoading, setApproveLoading] = useState(false)
+  const [preprocessLoading, setPreprocessLoading] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<'run-all' | 'approve' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
@@ -105,9 +118,30 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
     }
   }
 
+  async function handlePreprocess() {
+    setPreprocessLoading(true)
+    setActionError(null)
+    setActionSuccess(null)
+    try {
+      await runPreprocess(projectId)
+      setActionSuccess('Blueprint dimensions extraction started — status will update shortly.')
+      refresh()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to start pre-process')
+    } finally {
+      setPreprocessLoading(false)
+    }
+  }
+
   // Group cost codes by category
   const grouped = groupByCategory(project.cost_codes ?? [])
   const stats = computeStats(project.cost_codes ?? [])
+
+  // Check if any dxf-dependent cost codes are pending
+  const dxfAgentTypes = new Set(['dxf_count', 'dxf_area', 'dxf_geometry'])
+  const hasDxfPending = (project.cost_codes ?? []).some(
+    cc => dxfAgentTypes.has(cc.agent_type) && cc.agent_status === 'pending',
+  )
 
   return (
     <div className="animate-in fade-in">
@@ -208,28 +242,29 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
         <ValidationSummaryCard report={project.validation_report} />
       )}
 
+      {/* Preprocess card */}
+      {project.dxf_present && (
+        <PreprocessCard
+          status={project.preprocess_status}
+          isLocked={isLocked}
+          loading={preprocessLoading}
+          onRun={handlePreprocess}
+          showDxfHint={hasDxfPending && project.preprocess_status !== 'complete'}
+        />
+      )}
+
       {/* Cost code groups */}
       {grouped.length > 0 ? (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {grouped.map(({ category, codes }) => (
-            <div key={category}>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary mb-2">
-                {category || 'Uncategorized'}
-              </p>
-              <div className="space-y-2">
-                {codes.map(cc => (
-                  <CostCodeCard
-                    key={cc.cost_code}
-                    doc={cc}
-                    onClick={() =>
-                      router.push(
-                        `/vendy/takeoffs/${projectId}/cost-codes/${cc.cost_code}`,
-                      )
-                    }
-                  />
-                ))}
-              </div>
-            </div>
+            <CategorySection
+              key={category}
+              category={category}
+              codes={codes}
+              onClickCode={cc =>
+                router.push(`/vendy/takeoffs/${projectId}/cost-codes/${cc.cost_code}`)
+              }
+            />
           ))}
         </div>
       ) : (
@@ -262,6 +297,147 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
   )
 }
 
+// ── Preprocess card ───────────────────────────────────────────────────────────
+
+function PreprocessCard({
+  status,
+  isLocked,
+  loading,
+  onRun,
+  showDxfHint,
+}: {
+  status: string | null | undefined
+  isLocked: boolean
+  loading: boolean
+  onRun: () => void
+  showDxfHint: boolean
+}) {
+  const statusEl = (() => {
+    if (status === 'running') {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-primary">
+          <Loader2 size={12} className="animate-spin" /> Running…
+        </span>
+      )
+    }
+    if (status === 'complete') {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-success">
+          <CheckCircle size={12} /> Complete
+        </span>
+      )
+    }
+    if (status === 'failed') {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-danger">
+          <AlertTriangle size={12} /> Failed
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold text-text-muted bg-surface-raised border border-border">
+        Not run
+      </span>
+    )
+  })()
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl p-5 mb-5">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Database size={14} className="text-primary shrink-0" />
+            <p className="text-[13px] font-semibold text-text-primary">Read Blueprint Dimensions</p>
+            {statusEl}
+          </div>
+          <p className="text-[11px] text-text-secondary">
+            Extracts square footage and room counts from your DXF files — required before agents can run
+          </p>
+          {showDxfHint && (
+            <p className="mt-1.5 text-[11px] text-text-muted">
+              Blueprint dimensions needed — run above before starting DXF agents
+            </p>
+          )}
+        </div>
+        <button
+          onClick={onRun}
+          disabled={loading || status === 'running' || isLocked}
+          className="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] font-medium bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+        >
+          {loading || status === 'running' ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Play size={12} />
+          )}
+          Run
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Category section (collapsible) ────────────────────────────────────────────
+
+function getCategoryIcon(category: string) {
+  const c = category.toLowerCase()
+  if (c.includes('site'))                           return <Shovel size={14} />
+  if (c.includes('concrete') || c.includes('foundation')) return <Layers size={14} />
+  if (c.includes('framing'))                        return <Grid3x3 size={14} />
+  if (c.includes('exterior'))                       return <Home size={14} />
+  if (c.includes('window') || c.includes('door'))  return <DoorOpen size={14} />
+  if (c.includes('interior') || c.includes('paint') || c.includes('finish')) return <PaintBucket size={14} />
+  if (c.includes('mechanical') || c.includes('hvac')) return <Wrench size={14} />
+  if (c.includes('electrical'))                     return <Zap size={14} />
+  if (c.includes('plumbing'))                       return <Droplets size={14} />
+  if (c.includes('special') || c.includes('feature') || c.includes('option')) return <Star size={14} />
+  return <Package size={14} />
+}
+
+function CategorySection({
+  category,
+  codes,
+  onClickCode,
+}: {
+  category: string
+  codes: V2CostCodeDoc[]
+  onClickCode: (cc: V2CostCodeDoc) => void
+}) {
+  const [open, setOpen] = useState(true)
+  const completeCount = codes.filter(c => c.agent_status === 'complete').length
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surface-raised transition-colors text-left"
+      >
+        <span className="text-text-muted">{getCategoryIcon(category)}</span>
+        <span className="flex-1 text-[12px] font-semibold text-text-primary">
+          {category || 'Uncategorized'}
+        </span>
+        <span className="text-[11px] text-text-muted mr-2">
+          {completeCount} complete / {codes.length} total
+        </span>
+        <ChevronDown
+          size={14}
+          className={`text-text-muted transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border divide-y divide-border/50">
+          {codes.map(cc => (
+            <CostCodeCard
+              key={cc.cost_code}
+              doc={cc}
+              onClick={() => onClickCode(cc)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Cost code card ────────────────────────────────────────────────────────────
 
 function CostCodeCard({
@@ -277,7 +453,7 @@ function CostCodeCard({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-4 px-5 py-3.5 bg-surface border border-border rounded-[14px] hover:border-border-bright hover:bg-surface-raised transition-all duration-150 text-left group"
+      className="w-full flex items-center gap-4 px-5 py-3.5 bg-surface hover:bg-surface-raised transition-all duration-150 text-left group"
     >
       {/* Status dot */}
       <div

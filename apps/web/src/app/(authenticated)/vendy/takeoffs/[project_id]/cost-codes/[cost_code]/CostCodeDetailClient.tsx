@@ -22,6 +22,7 @@ import type { V2CostCodeDoc, V2RunLog } from '@/lib/vendy/types'
 interface Props {
   projectId: string
   costCode: string
+  role?: string
 }
 
 // ── Status styles ─────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function CostCodeDetailClient({ projectId, costCode }: Props) {
+export default function CostCodeDetailClient({ projectId, costCode, role }: Props) {
   const router = useRouter()
   const [doc, setDoc] = useState<V2CostCodeDoc | null>(null)
   const [runs, setRuns] = useState<V2RunLog[]>([])
@@ -229,6 +230,16 @@ export default function CostCodeDetailClient({ projectId, costCode }: Props) {
             costCode={costCode}
             onSaved={load}
           />
+
+          {/* Admin: agent type override */}
+          {role === 'admin' && (
+            <AgentTypeOverridePanel
+              doc={doc}
+              projectId={projectId}
+              costCode={costCode}
+              onSaved={load}
+            />
+          )}
         </div>
 
         {/* Right: estimate + run history */}
@@ -706,6 +717,104 @@ function RunRow({ run }: { run: V2RunLog }) {
           <p className="text-[10px] text-danger mt-0.5 truncate">{run.error}</p>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Admin: agent type override ────────────────────────────────────────────────
+
+const AGENT_TYPE_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: 'sf_formula',     label: 'Square Footage Formula',  description: 'Calculates quantity using home dimensions from the blueprint' },
+  { value: 'dxf_count',      label: 'Blueprint Count',         description: 'Counts specific items drawn on the blueprints' },
+  { value: 'dxf_area',       label: 'Blueprint Area',          description: 'Measures surface area from shapes drawn on the blueprints' },
+  { value: 'dxf_geometry',   label: 'Blueprint Geometry',      description: 'Calculates roof area, wall perimeter, or eave length' },
+  { value: 'historical_avg', label: 'Historical Average',      description: 'Uses average pricing from past awarded bids' },
+  { value: 'project_flag',   label: 'Feature Detection',       description: 'Uses AI to detect optional features (fireplace, pool, etc.)' },
+  { value: 'manual_hold',    label: 'Manual Entry',            description: 'Requires a number to be entered manually by the team' },
+  { value: 'skip',           label: 'Profit Item — Skip',      description: 'No takeoff calculation needed; tracked as a profit line' },
+]
+
+function AgentTypeOverridePanel({
+  doc,
+  projectId,
+  costCode,
+  onSaved,
+}: {
+  doc: V2CostCodeDoc
+  projectId: string
+  costCode: string
+  onSaved: () => void
+}) {
+  const [agentType, setAgentType] = useState(doc.agent_type ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  const selectedOption = AGENT_TYPE_OPTIONS.find(o => o.value === agentType)
+  const isDirty = agentType !== (doc.agent_type ?? '')
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError(null)
+    setSaved(false)
+    try {
+      await updateCostCodeOverride(projectId, costCode, { agent_type: agentType })
+      setSaved(true)
+      onSaved()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface border border-primary/30 rounded-2xl p-5">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-primary mb-4">
+        Admin: Agent Type Override
+      </p>
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary block mb-1.5">
+            Agent Type
+          </label>
+          <select
+            value={agentType}
+            onChange={e => { setAgentType(e.target.value); setSaved(false) }}
+            className="w-full bg-surface-raised border border-border text-text-primary text-[12px] rounded-lg px-3 h-9 focus:outline-none focus:border-primary transition-colors"
+          >
+            {AGENT_TYPE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {selectedOption && (
+            <p className="mt-1.5 text-[11px] text-text-muted leading-snug">
+              {selectedOption.description}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {saveError && (
+        <p className="mt-3 text-[11px] text-danger">{saveError}</p>
+      )}
+      {saved && !saveError && (
+        <div className="mt-3 flex items-center gap-1.5 text-[11px] text-success">
+          <CheckCircle size={12} /> Saved
+        </div>
+      )}
+
+      <button
+        onClick={handleSave}
+        disabled={saving || !isDirty}
+        className="mt-4 w-full h-9 rounded-lg bg-primary text-white text-[12px] font-medium hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+      >
+        {saving ? <Loader2 size={13} className="animate-spin" /> : null}
+        {saving ? 'Saving…' : 'Save Agent Type'}
+      </button>
     </div>
   )
 }

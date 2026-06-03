@@ -151,6 +151,12 @@ export async function runAgent(
 
 // ── Overrides ─────────────────────────────────────────────────────────────────
 
+export async function runPreprocess(
+  projectId: string,
+): Promise<{ status: string; preprocess_status: string }> {
+  return v2Fetch(`/projects/${projectId}/preprocess`, { method: 'POST' })
+}
+
 export async function updateCostCodeOverride(
   projectId: string,
   costCode: string,
@@ -160,6 +166,7 @@ export async function updateCostCodeOverride(
     estimate_final_cost?: number | null
     overrides?: Record<string, unknown>
     override_notes?: string
+    agent_type?: string
   },
 ): Promise<{ status: string }> {
   return v2Fetch(`/projects/${projectId}/cost-codes/${costCode}`, {

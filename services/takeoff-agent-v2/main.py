@@ -185,6 +185,10 @@ def _build_cost_code_docs(
 
         estimate_cost = estimate_lines.get(code) if estimate_lines else None
 
+        # Skip if not on this job's estimate (no entry or $0)
+        if estimate_lines is not None and (estimate_cost is None or estimate_cost <= 0):
+            continue
+
         docs.append(
             {
                 "cost_code": code,
@@ -1157,12 +1161,29 @@ async def update_cost_code(
             detail=f"Cost code '{cost_code}' not found in project '{project_id}'.",
         )
 
+    VALID_AGENT_TYPES = {
+        "sf_formula",
+        "dxf_count",
+        "dxf_area",
+        "dxf_geometry",
+        "historical_avg",
+        "project_flag",
+        "manual_hold",
+        "skip",
+    }
+    if "agent_type" in body and body["agent_type"] not in VALID_AGENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid agent_type '{body['agent_type']}'. Must be one of: {sorted(VALID_AGENT_TYPES)}",
+        )
+
     allowed_keys = {
         "quantity",
         "unit",
         "estimate_final_cost",
         "overrides",
         "override_notes",
+        "agent_type",
     }
     updates = {k: v for k, v in body.items() if k in allowed_keys}
     await asyncio.to_thread(
