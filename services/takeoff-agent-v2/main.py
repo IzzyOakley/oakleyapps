@@ -528,11 +528,23 @@ async def preprocess_project(
     started_at = datetime.now(timezone.utc)
     t0 = time.monotonic()
     tmp_path: str | None = None
+    bsmt_tmp_path: str | None = None
 
     try:
         tmp_path = gcs.download_dxf_to_temp(dxf_gcs_path)
+
+        # Attempt to also download a basement DXF (non-fatal if not found).
+        bsmt_info = gcs.check_dxf_present(job_name, file_hint="bsmt")
+        if bsmt_info["dxf_present"] and bsmt_info["dxf_gcs_path"] != dxf_gcs_path:
+            try:
+                bsmt_tmp_path = gcs.download_dxf_to_temp(bsmt_info["dxf_gcs_path"])
+            except Exception:
+                bsmt_tmp_path = None  # non-fatal
+
         processor = DXFProcessor(tmp_path)
-        shared_params: SharedParams = processor.extract_shared_params()
+        shared_params: SharedParams = processor.extract_shared_params(
+            bsmt_file_path=bsmt_tmp_path
+        )
     except Exception as exc:
         fs.save_preprocess_result(project_id, {}, "failed")
         fs.log_run(
@@ -552,6 +564,8 @@ async def preprocess_project(
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+        if bsmt_tmp_path and os.path.exists(bsmt_tmp_path):
+            os.unlink(bsmt_tmp_path)
 
     params_dict = shared_params.model_dump()
     params_dict["dxf_gcs_path"] = dxf_gcs_path
