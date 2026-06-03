@@ -175,6 +175,22 @@ export async function updateCostCodeOverride(
   })
 }
 
+// ── Shared params ─────────────────────────────────────────────────────────────
+
+export async function getSharedParams(projectId: string): Promise<Record<string, number>> {
+  return v2Fetch<Record<string, number>>(`/projects/${projectId}/shared-params`)
+}
+
+export async function updateSharedParams(
+  projectId: string,
+  updates: Record<string, number>,
+): Promise<Record<string, number>> {
+  return v2Fetch<Record<string, number>>(`/projects/${projectId}/shared-params`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  })
+}
+
 // ── Approval ──────────────────────────────────────────────────────────────────
 
 export async function approveTakeoffV2(projectId: string): Promise<{

@@ -220,6 +220,24 @@ def get_shared_params(project_id: str) -> dict | None:
     return doc.to_dict() if doc.exists else None
 
 
+def update_shared_params(project_id: str, updates: dict) -> dict:
+    """
+    Merge-update the dxf_sections/shared_params document with the given fields.
+    Returns the full updated document dict.
+    """
+    db = get_db()
+    ref = (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .collection("dxf_sections")
+        .document("shared_params")
+    )
+    ref.set(updates, merge=True)
+    return ref.get().to_dict() or {}
+
+
 def get_vendor_price_books(cost_code: str | None = None) -> dict[str, dict]:
     """
     Return {vendor_id: price_book_dict} for all vendors in apps/vendy/vendors.

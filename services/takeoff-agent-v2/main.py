@@ -1192,6 +1192,67 @@ async def update_cost_code(
     return {"project_id": project_id, "cost_code": cost_code, "status": "updated"}
 
 
+# ── GET /v2/projects/{project_id}/shared-params ──────────────────────────────
+
+
+@app.get("/v2/projects/{project_id}/shared-params")
+async def get_shared_params_endpoint(
+    project_id: str,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Return the extracted SharedParams for a v2 project.
+    Returns an empty dict if preprocess has not run yet.
+    Returns 404 if the project is not found.
+    """
+    if fs.get_v2_project(project_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    params = await asyncio.to_thread(fs.get_shared_params, project_id)
+    return params or {}
+
+
+# ── PATCH /v2/projects/{project_id}/shared-params ────────────────────────────
+
+
+@app.patch("/v2/projects/{project_id}/shared-params")
+async def update_shared_params_endpoint(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Merge-update SharedParams fields for a v2 project.
+
+    Only numeric (float/int) values are accepted. Non-numeric values are ignored.
+    Returns the full updated shared_params dict.
+    Returns 404 if the project is not found.
+    Returns 409 if the project is locked.
+    """
+    project = fs.get_v2_project(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    if project.get("locked"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{project_id}' is locked.",
+        )
+    # Accept only numeric values — guard against accidental string/list writes
+    numeric_updates = {k: v for k, v in body.items() if isinstance(v, (int, float))}
+    if not numeric_updates:
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must contain at least one numeric field to update.",
+        )
+    updated = await asyncio.to_thread(
+        fs.update_shared_params, project_id, numeric_updates
+    )
+    return updated
+
+
 # ── POST /v2/projects/{project_id}/approve (13.3) ────────────────────────────
 
 

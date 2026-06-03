@@ -24,7 +24,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
-import { approveTakeoffV2, getV2Project, runAllAgents, runPreprocess } from '@/lib/vendy/takeoffs-v2-api'
+import { approveTakeoffV2, getSharedParams, getV2Project, runAllAgents, runPreprocess, updateSharedParams } from '@/lib/vendy/takeoffs-v2-api'
 import type { V2CostCodeDoc, V2ProjectDetail } from '@/lib/vendy/types'
 
 interface Props {
@@ -245,6 +245,7 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
       {/* Preprocess card */}
       {project.dxf_present && (
         <PreprocessCard
+          projectId={projectId}
           status={project.preprocess_status}
           isLocked={isLocked}
           loading={preprocessLoading}
@@ -297,21 +298,134 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
   )
 }
 
+// ── Shared params label map ───────────────────────────────────────────────────
+
+const SHARED_PARAMS_LABELS: Record<string, string> = {
+  total_finished_sf: 'Total Finished SF',
+  first_floor_sf: 'First Floor SF',
+  first_floor_footprint_sf: 'First Floor Footprint SF',
+  second_floor_sf: 'Second Floor SF',
+  third_floor_sf: 'Third Floor SF',
+  basement_sf_finished: 'Finished Basement SF',
+  basement_sf_unfinished: 'Unfinished Basement SF',
+  garage_sf: 'Garage SF',
+  bathroom_count_full: 'Full Bathrooms',
+  bathroom_count_half: 'Half Bathrooms',
+  bedroom_count: 'Bedrooms',
+  story_count: 'Stories',
+}
+
+// Fields that are not editable (metadata/non-numeric)
+const NON_NUMERIC_FIELDS = new Set([
+  'dxf_file',
+  'dxf_gcs_path',
+  'dxf_version',
+  'layers_found',
+  'layers_missing',
+  'confidence',
+  'flags',
+  'has_detached_garage',
+  'updated_at',
+])
+
+function toReadableLabel(field: string): string {
+  if (SHARED_PARAMS_LABELS[field]) return SHARED_PARAMS_LABELS[field]
+  return field
+    .split('_')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
 // ── Preprocess card ───────────────────────────────────────────────────────────
 
 function PreprocessCard({
+  projectId,
   status,
   isLocked,
   loading,
   onRun,
   showDxfHint,
 }: {
+  projectId: string
   status: string | null | undefined
   isLocked: boolean
   loading: boolean
   onRun: () => void
   showDxfHint: boolean
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const [params, setParams] = useState<Record<string, number> | null>(null)
+  const [paramsLoading, setParamsLoading] = useState(false)
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const [saveLoading, setSaveLoading] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  async function handleToggle() {
+    const next = !expanded
+    setExpanded(next)
+    if (next && status === 'complete' && params === null) {
+      setParamsLoading(true)
+      try {
+        const data = await getSharedParams(projectId)
+        // Filter to only numeric fields
+        const numeric: Record<string, number> = {}
+        for (const [k, v] of Object.entries(data)) {
+          if (!NON_NUMERIC_FIELDS.has(k) && typeof v === 'number') {
+            numeric[k] = v
+          }
+        }
+        setParams(numeric)
+      } catch {
+        setParams({})
+      } finally {
+        setParamsLoading(false)
+      }
+    }
+  }
+
+  function handleEdit(field: string, value: string) {
+    setEdits(prev => ({ ...prev, [field]: value }))
+    setSaveSuccess(false)
+    setSaveError(null)
+  }
+
+  const hasChanges = Object.keys(edits).some(k => {
+    const edited = parseFloat(edits[k])
+    return !isNaN(edited) && edited !== (params?.[k] ?? 0)
+  })
+
+  async function handleSave() {
+    if (!params) return
+    const updates: Record<string, number> = {}
+    for (const [k, v] of Object.entries(edits)) {
+      const parsed = parseFloat(v)
+      if (!isNaN(parsed) && parsed !== params[k]) {
+        updates[k] = parsed
+      }
+    }
+    if (Object.keys(updates).length === 0) return
+    setSaveLoading(true)
+    setSaveError(null)
+    setSaveSuccess(false)
+    try {
+      const updated = await updateSharedParams(projectId, updates)
+      const numeric: Record<string, number> = {}
+      for (const [k, v] of Object.entries(updated)) {
+        if (!NON_NUMERIC_FIELDS.has(k) && typeof v === 'number') {
+          numeric[k] = v
+        }
+      }
+      setParams(numeric)
+      setEdits({})
+      setSaveSuccess(true)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaveLoading(false)
+    }
+  }
+
   const statusEl = (() => {
     if (status === 'running') {
       return (
@@ -342,23 +456,21 @@ function PreprocessCard({
   })()
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 mb-5">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Database size={14} className="text-primary shrink-0" />
-            <p className="text-[13px] font-semibold text-text-primary">Read Blueprint Dimensions</p>
-            {statusEl}
-          </div>
-          <p className="text-[11px] text-text-secondary">
-            Extracts square footage and room counts from your DXF files — required before agents can run
-          </p>
-          {showDxfHint && (
-            <p className="mt-1.5 text-[11px] text-text-muted">
-              Blueprint dimensions needed — run above before starting DXF agents
-            </p>
-          )}
-        </div>
+    <div className="bg-surface border border-border rounded-2xl mb-5 overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-start justify-between flex-wrap gap-3 p-5">
+        <button
+          onClick={handleToggle}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
+        >
+          <Database size={14} className="text-primary shrink-0" />
+          <p className="text-[13px] font-semibold text-text-primary">Read Blueprint Dimensions</p>
+          {statusEl}
+          <ChevronDown
+            size={13}
+            className={`text-text-muted ml-auto transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          />
+        </button>
         <button
           onClick={onRun}
           disabled={loading || status === 'running' || isLocked}
@@ -372,6 +484,89 @@ function PreprocessCard({
           Run
         </button>
       </div>
+
+      {/* Description + hint */}
+      {(!expanded) && (
+        <div className="px-5 pb-4 -mt-2">
+          <p className="text-[11px] text-text-secondary">
+            Extracts square footage and room counts from your DXF files — required before agents can run
+          </p>
+          {showDxfHint && (
+            <p className="mt-1.5 text-[11px] text-text-muted">
+              Blueprint dimensions needed — run above before starting DXF agents
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-border px-5 pb-5 pt-4">
+          {status !== 'complete' ? (
+            <p className="text-[12px] text-text-muted">
+              Run &ldquo;Read Blueprint Dimensions&rdquo; first to see extracted values.
+            </p>
+          ) : paramsLoading ? (
+            <div className="flex items-center gap-2 text-[12px] text-text-muted py-2">
+              <Loader2 size={13} className="animate-spin text-primary" /> Loading…
+            </div>
+          ) : params && Object.keys(params).length > 0 ? (
+            <>
+              <div className="divide-y divide-border/50">
+                {Object.entries(params).map(([field, value]) => {
+                  const editedVal = edits[field]
+                  const isEdited = editedVal !== undefined && parseFloat(editedVal) !== value
+                  return (
+                    <div key={field} className="flex justify-between items-center py-2">
+                      <span className="text-[12px] text-text-secondary flex items-center gap-1.5">
+                        {toReadableLabel(field)}
+                        {isEdited && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                        )}
+                      </span>
+                      <input
+                        type="number"
+                        disabled={isLocked}
+                        value={editedVal !== undefined ? editedVal : String(value)}
+                        onChange={e => handleEdit(field, e.target.value)}
+                        className="w-28 text-right text-[13px] font-medium text-text-primary bg-transparent border border-border rounded-md px-2 py-1 focus:outline-none focus:border-primary disabled:opacity-50"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Save row */}
+              {!isLocked && (
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+                  <div>
+                    {saveSuccess && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-success">
+                        <CheckCircle size={11} /> Saved
+                      </span>
+                    )}
+                    {saveError && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-danger">
+                        <AlertTriangle size={11} /> {saveError}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleSave}
+                    disabled={!hasChanges || saveLoading}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {saveLoading ? <Loader2 size={11} className="animate-spin" /> : null}
+                    Save Changes
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-[12px] text-text-muted py-2">No extracted values found.</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
