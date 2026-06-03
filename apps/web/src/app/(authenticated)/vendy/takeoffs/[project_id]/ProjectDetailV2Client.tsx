@@ -25,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { approveTakeoffV2, getSharedParams, getV2Project, runAllAgents, runPreprocess, updateEstimateSF, updateSharedParams } from '@/lib/vendy/takeoffs-v2-api'
-import type { V2CostCodeDoc, V2ProjectDetail } from '@/lib/vendy/types'
+import type { SharedParamsData, V2CostCodeDoc, V2ProjectDetail } from '@/lib/vendy/types'
 
 interface Props {
   initialProject: V2ProjectDetail
@@ -252,9 +252,12 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
           onRun={handlePreprocess}
           showDxfHint={hasDxfPending && project.preprocess_status !== 'complete'}
           estimateSf={project.estimate_sf ?? null}
+          estimateSf1stFloor={project.estimate_sf_1st_floor ?? null}
+          estimateSf2ndFloor={project.estimate_sf_2nd_floor ?? null}
+          estimateSfBasement={project.estimate_sf_basement ?? null}
           sfVariancePct={project.sf_variance_pct ?? null}
           sfValidation={project.sf_validation ?? null}
-          onEstimateSfChange={(val) => setProject(p => ({ ...p, estimate_sf: val }))}
+          onEstimateSfChange={(field, val) => setProject(p => ({ ...p, [field]: val }))}
         />
       )}
 
@@ -340,6 +343,20 @@ function toReadableLabel(field: string): string {
     .join(' ')
 }
 
+// ── Variance display helper ───────────────────────────────────────────────────
+
+function VarianceBadge({ extracted, planned }: { extracted: number; planned: number | null | undefined }) {
+  if (!planned || planned <= 0 || extracted <= 0) return null
+  const pct = Math.abs(extracted - planned) / planned * 100
+  if (pct <= 5) {
+    return <span className="text-[10px] text-success ml-2">&#10003; within plan</span>
+  }
+  if (pct <= 15) {
+    return <span className="text-[10px] text-warning ml-2">&#9888; {pct.toFixed(1)}% off plan</span>
+  }
+  return <span className="text-[10px] text-danger ml-2">&#10007; {pct.toFixed(1)}% off plan</span>
+}
+
 // ── Preprocess card ───────────────────────────────────────────────────────────
 
 function PreprocessCard({
@@ -350,6 +367,9 @@ function PreprocessCard({
   onRun,
   showDxfHint,
   estimateSf,
+  estimateSf1stFloor,
+  estimateSf2ndFloor,
+  estimateSfBasement,
   sfVariancePct,
   sfValidation,
   onEstimateSfChange,
@@ -361,29 +381,40 @@ function PreprocessCard({
   onRun: () => void
   showDxfHint: boolean
   estimateSf: number | null
+  estimateSf1stFloor: number | null
+  estimateSf2ndFloor: number | null
+  estimateSfBasement: number | null
   sfVariancePct: number | null
   sfValidation: 'no_estimate' | 'ok' | 'warning' | 'error' | null
-  onEstimateSfChange: (val: number | null) => void
+  onEstimateSfChange: (field: string, val: number | null) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [params, setParams] = useState<Record<string, number> | null>(null)
+  const [params, setParams] = useState<SharedParamsData | null>(null)
   const [paramsLoading, setParamsLoading] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [saveLoading, setSaveLoading] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [estimateSfInput, setEstimateSfInput] = useState(estimateSf != null ? String(estimateSf) : '')
-  const [estimateSfSaved, setEstimateSfSaved] = useState(false)
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false)
 
-  async function handleEstimateSfBlur() {
-    const parsed = parseFloat(estimateSfInput)
+  // Per-floor planned SF inputs
+  const [sfInputs, setSfInputs] = useState({
+    estimate_sf: estimateSf != null ? String(estimateSf) : '',
+    estimate_sf_1st_floor: estimateSf1stFloor != null ? String(estimateSf1stFloor) : '',
+    estimate_sf_2nd_floor: estimateSf2ndFloor != null ? String(estimateSf2ndFloor) : '',
+    estimate_sf_basement: estimateSfBasement != null ? String(estimateSfBasement) : '',
+  })
+  const [sfSaved, setSfSaved] = useState(false)
+
+  async function handleSfBlur(field: keyof typeof sfInputs, currentVal: number | null) {
+    const parsed = parseFloat(sfInputs[field])
     if (isNaN(parsed) || parsed <= 0) return
-    if (parsed === estimateSf) return
+    if (parsed === currentVal) return
     try {
-      await updateEstimateSF(projectId, parsed)
-      onEstimateSfChange(parsed)
-      setEstimateSfSaved(true)
-      setTimeout(() => setEstimateSfSaved(false), 2000)
+      await updateEstimateSF(projectId, { [field]: parsed })
+      onEstimateSfChange(field, parsed)
+      setSfSaved(true)
+      setTimeout(() => setSfSaved(false), 2000)
     } catch {
       // non-fatal
     }
@@ -396,16 +427,9 @@ function PreprocessCard({
       setParamsLoading(true)
       try {
         const data = await getSharedParams(projectId)
-        // Filter to only numeric fields
-        const numeric: Record<string, number> = {}
-        for (const [k, v] of Object.entries(data)) {
-          if (!NON_NUMERIC_FIELDS.has(k) && typeof v === 'number') {
-            numeric[k] = v
-          }
-        }
-        setParams(numeric)
+        setParams(data)
       } catch {
-        setParams({})
+        setParams(null)
       } finally {
         setParamsLoading(false)
       }
@@ -418,17 +442,26 @@ function PreprocessCard({
     setSaveError(null)
   }
 
+  // Only numeric fields from params for the editable table
+  const numericParams: Record<string, number> = {}
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (!NON_NUMERIC_FIELDS.has(k) && typeof v === 'number') {
+        numericParams[k] = v as number
+      }
+    }
+  }
+
   const hasChanges = Object.keys(edits).some(k => {
     const edited = parseFloat(edits[k])
-    return !isNaN(edited) && edited !== (params?.[k] ?? 0)
+    return !isNaN(edited) && edited !== (numericParams[k] ?? 0)
   })
 
   async function handleSave() {
-    if (!params) return
     const updates: Record<string, number> = {}
     for (const [k, v] of Object.entries(edits)) {
       const parsed = parseFloat(v)
-      if (!isNaN(parsed) && parsed !== params[k]) {
+      if (!isNaN(parsed) && parsed !== numericParams[k]) {
         updates[k] = parsed
       }
     }
@@ -438,13 +471,7 @@ function PreprocessCard({
     setSaveSuccess(false)
     try {
       const updated = await updateSharedParams(projectId, updates)
-      const numeric: Record<string, number> = {}
-      for (const [k, v] of Object.entries(updated)) {
-        if (!NON_NUMERIC_FIELDS.has(k) && typeof v === 'number') {
-          numeric[k] = v
-        }
-      }
-      setParams(numeric)
+      setParams(prev => prev ? { ...prev, ...updated } : null)
       setEdits({})
       setSaveSuccess(true)
     } catch (e) {
@@ -482,6 +509,31 @@ function PreprocessCard({
       </span>
     )
   })()
+
+  // Planned SF rows config
+  const plannedSfRows: Array<{ label: string; field: keyof typeof sfInputs; currentVal: number | null }> = [
+    { label: 'Above Grade Total', field: 'estimate_sf', currentVal: estimateSf },
+    { label: '1st Floor', field: 'estimate_sf_1st_floor', currentVal: estimateSf1stFloor },
+    { label: '2nd Floor', field: 'estimate_sf_2nd_floor', currentVal: estimateSf2ndFloor },
+    { label: 'Basement', field: 'estimate_sf_basement', currentVal: estimateSfBasement },
+  ]
+
+  // Fields where we show variance (extracted key → planned key)
+  const varianceFields: Array<{ label: string; extractedKey: keyof SharedParamsData; plannedKey: keyof typeof sfInputs }> = [
+    { label: 'Total Finished SF', extractedKey: 'total_finished_sf', plannedKey: 'estimate_sf' },
+    { label: 'First Floor SF', extractedKey: 'first_floor_sf', plannedKey: 'estimate_sf_1st_floor' },
+    { label: 'Second Floor SF', extractedKey: 'second_floor_sf', plannedKey: 'estimate_sf_2nd_floor' },
+    { label: 'Finished Basement SF', extractedKey: 'basement_sf_finished', plannedKey: 'estimate_sf_basement' },
+  ]
+
+  const areaSource = params?.flags?.includes('area_source:mtext_schedule')
+    ? 'MTEXT schedule (accurate)'
+    : 'LWPOLYLINE geometry (fallback — less accurate)'
+
+  const confidenceColor =
+    params?.confidence === 'high' ? 'text-success' :
+    params?.confidence === 'medium' ? 'text-warning' :
+    'text-danger'
 
   return (
     <div className="bg-surface border border-border rounded-2xl mb-5 overflow-hidden">
@@ -530,29 +582,34 @@ function PreprocessCard({
       {/* Expanded content */}
       {expanded && (
         <div className="border-t border-border px-5 pb-5 pt-4">
-          {/* Estimated SF input */}
+          {/* Planned Square Footage section */}
           <div className="mb-4">
-            <div className="flex justify-between items-start mb-1">
+            <div className="flex items-center justify-between mb-2">
               <div>
-                <span className="text-[12px] font-medium text-text-primary">Estimated SF</span>
-                <p className="text-[11px] text-text-muted">Enter the planned square footage — used to verify DXF extraction accuracy</p>
+                <span className="text-[12px] font-medium text-text-primary">Planned Square Footage</span>
+                <p className="text-[11px] text-text-muted">Enter planned values to verify DXF extraction accuracy</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {estimateSfSaved && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-success">
-                    <CheckCircle size={11} /> Saved
-                  </span>
-                )}
-                <input
-                  type="number"
-                  disabled={isLocked}
-                  value={estimateSfInput}
-                  onChange={e => { setEstimateSfInput(e.target.value); setEstimateSfSaved(false) }}
-                  onBlur={handleEstimateSfBlur}
-                  placeholder="e.g. 3628"
-                  className="w-28 text-right text-[13px] font-medium text-text-primary bg-transparent border border-border rounded-md px-2 py-1 focus:outline-none focus:border-primary disabled:opacity-50"
-                />
-              </div>
+              {sfSaved && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-success shrink-0">
+                  <CheckCircle size={11} /> Saved
+                </span>
+              )}
+            </div>
+            <div className="divide-y divide-border/50">
+              {plannedSfRows.map(({ label, field, currentVal }) => (
+                <div key={field} className="flex justify-between items-center py-1.5">
+                  <span className="text-[12px] text-text-secondary">{label}</span>
+                  <input
+                    type="number"
+                    disabled={isLocked}
+                    value={sfInputs[field]}
+                    onChange={e => setSfInputs(prev => ({ ...prev, [field]: e.target.value }))}
+                    onBlur={() => handleSfBlur(field, currentVal)}
+                    placeholder="—"
+                    className="w-28 text-right text-[13px] font-medium text-text-primary bg-transparent border border-border rounded-md px-2 py-1 focus:outline-none focus:border-primary disabled:opacity-50"
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
@@ -566,8 +623,7 @@ function PreprocessCard({
                   : 'bg-danger-bg border border-danger/20 text-danger'
             }`}>
               {sfValidation === 'ok' && <CheckCircle size={13} className="shrink-0 mt-0.5" />}
-              {sfValidation === 'warning' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
-              {sfValidation === 'error' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+              {sfValidation !== 'ok' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
               <span>
                 {sfValidation === 'ok' && 'Extracted SF is within 5% of your estimate'}
                 {sfValidation === 'warning' && `Extracted SF is ${sfVariancePct}% off your estimate — review values below`}
@@ -577,7 +633,7 @@ function PreprocessCard({
           )}
           {status === 'complete' && (!sfValidation || sfValidation === 'no_estimate') && (
             <div className="mb-4 px-3 py-2 rounded-xl text-[11px] text-text-muted bg-surface-raised border border-border">
-              Set an estimated SF above to enable automatic accuracy checking
+              Set planned SF above to enable automatic accuracy checking
             </div>
           )}
 
@@ -589,18 +645,24 @@ function PreprocessCard({
             <div className="flex items-center gap-2 text-[12px] text-text-muted py-2">
               <Loader2 size={13} className="animate-spin text-primary" /> Loading…
             </div>
-          ) : params && Object.keys(params).length > 0 ? (
+          ) : params ? (
             <>
               <div className="divide-y divide-border/50">
-                {Object.entries(params).map(([field, value]) => {
+                {Object.entries(numericParams).map(([field, value]) => {
                   const editedVal = edits[field]
                   const isEdited = editedVal !== undefined && parseFloat(editedVal) !== value
+                  // Find planned value for variance comparison
+                  const vf = varianceFields.find(vf => vf.extractedKey === field)
+                  const plannedVal = vf ? parseFloat(sfInputs[vf.plannedKey]) || null : null
                   return (
                     <div key={field} className="flex justify-between items-center py-2">
-                      <span className="text-[12px] text-text-secondary flex items-center gap-1.5">
+                      <span className="text-[12px] text-text-secondary flex items-center gap-1">
                         {toReadableLabel(field)}
                         {isEdited && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block ml-1" />
+                        )}
+                        {vf && typeof value === 'number' && (
+                          <VarianceBadge extracted={value} planned={plannedVal} />
                         )}
                       </span>
                       <input
@@ -640,6 +702,39 @@ function PreprocessCard({
                   </button>
                 </div>
               )}
+
+              {/* Extraction Details disclosure */}
+              <div className="mt-4 pt-3 border-t border-border">
+                <button
+                  onClick={() => setDiagnosticOpen(o => !o)}
+                  className="flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  <ChevronDown size={12} className={`transition-transform duration-150 ${diagnosticOpen ? 'rotate-180' : ''}`} />
+                  Extraction Details
+                </button>
+                {diagnosticOpen && (
+                  <div className="mt-2 space-y-1 text-[11px] text-text-muted leading-relaxed">
+                    {params.dxf_file && (
+                      <p><span className="text-text-secondary">DXF file:</span> {params.dxf_file}</p>
+                    )}
+                    <p><span className="text-text-secondary">Source:</span> {areaSource}</p>
+                    <p><span className="text-text-secondary">Basement file loaded:</span> {params.bsmt_loaded ? 'Yes' : 'No'}</p>
+                    <p><span className="text-text-secondary">2nd floor file loaded:</span> {params.pl2_loaded ? 'Yes' : 'No'}</p>
+                    {params.confidence && (
+                      <p>
+                        <span className="text-text-secondary">Confidence:</span>{' '}
+                        <span className={confidenceColor}>{params.confidence.charAt(0).toUpperCase() + params.confidence.slice(1)}</span>
+                      </p>
+                    )}
+                    {params.layers_missing && params.layers_missing.length > 0 && (
+                      <p><span className="text-text-secondary">Missing layers:</span> {params.layers_missing.join(', ')}</p>
+                    )}
+                    {(!params.layers_missing || params.layers_missing.length === 0) && (
+                      <p><span className="text-text-secondary">Missing layers:</span> None</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <p className="text-[12px] text-text-muted py-2">No extracted values found.</p>

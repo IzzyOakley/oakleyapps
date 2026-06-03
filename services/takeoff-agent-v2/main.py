@@ -43,7 +43,10 @@ from schemas import (
 
 
 class EstimateSFRequest(BaseModel):
-    estimate_sf: float
+    estimate_sf: float | None = None
+    estimate_sf_1st_floor: float | None = None
+    estimate_sf_2nd_floor: float | None = None
+    estimate_sf_basement: float | None = None
 
 
 INTERNAL_SERVICE_SECRET = os.environ.get(
@@ -609,6 +612,24 @@ async def preprocess_project(
 
     params_dict["sf_variance_pct"] = sf_variance
     params_dict["sf_validation"] = sf_validation
+
+    # ── Per-floor variance against estimate fields ────────────────────────────
+    floor_variances: dict[str, float] = {}
+    for sp_field, est_key in [
+        ("first_floor_sf", "estimate_sf_1st_floor"),
+        ("second_floor_sf", "estimate_sf_2nd_floor"),
+        ("basement_sf_finished", "estimate_sf_basement"),
+    ]:
+        est_val = (job_doc or {}).get(est_key)
+        ext_val = getattr(shared_params, sp_field, 0.0)
+        if est_val and est_val > 0 and ext_val > 0:
+            pct = abs(ext_val - est_val) / est_val * 100
+            floor_variances[sp_field] = round(pct, 1)
+    params_dict["floor_variances"] = floor_variances
+
+    # ── Diagnostic: which supplemental DXF files were loaded ─────────────────
+    params_dict["bsmt_loaded"] = bsmt_tmp_path is not None
+    params_dict["pl2_loaded"] = pl2_tmp_path is not None
 
     fs.save_preprocess_result(project_id, params_dict, "complete")
 
@@ -1331,8 +1352,19 @@ async def update_estimate_sf(
         raise HTTPException(
             status_code=404, detail=f"Project '{project_id}' not found."
         )
-    await asyncio.to_thread(fs.update_estimate_sf, project_id, body.estimate_sf)
-    return {"estimate_sf": body.estimate_sf}
+    field_map = {
+        "estimate_sf": body.estimate_sf,
+        "estimate_sf_1st_floor": body.estimate_sf_1st_floor,
+        "estimate_sf_2nd_floor": body.estimate_sf_2nd_floor,
+        "estimate_sf_basement": body.estimate_sf_basement,
+    }
+    updates = {k: v for k, v in field_map.items() if v is not None}
+    if not updates:
+        raise HTTPException(
+            status_code=400, detail="At least one estimate_sf field is required."
+        )
+    await asyncio.to_thread(fs.update_estimate_sf, project_id, updates)
+    return updates
 
 
 # ── POST /v2/projects/{project_id}/approve (13.3) ────────────────────────────

@@ -3,6 +3,7 @@
 import type {
   AirtableProjectOption,
   GCSProjectOption,
+  SharedParamsData,
   V2CostCodeDoc,
   V2ProjectDetail,
   V2ProjectSummary,
@@ -177,8 +178,8 @@ export async function updateCostCodeOverride(
 
 // ── Shared params ─────────────────────────────────────────────────────────────
 
-export async function getSharedParams(projectId: string): Promise<Record<string, number>> {
-  return v2Fetch<Record<string, number>>(`/projects/${projectId}/shared-params`)
+export async function getSharedParams(projectId: string): Promise<SharedParamsData> {
+  return v2Fetch<SharedParamsData>(`/projects/${projectId}/shared-params`)
 }
 
 export async function updateSharedParams(
@@ -195,11 +196,16 @@ export async function updateSharedParams(
 
 export async function updateEstimateSF(
   projectId: string,
-  estimateSf: number,
-): Promise<{ estimate_sf: number }> {
-  return v2Fetch<{ estimate_sf: number }>(`/projects/${projectId}/estimate-sf`, {
+  data: {
+    estimate_sf?: number | null
+    estimate_sf_1st_floor?: number | null
+    estimate_sf_2nd_floor?: number | null
+    estimate_sf_basement?: number | null
+  },
+): Promise<typeof data> {
+  return v2Fetch<typeof data>(`/projects/${projectId}/estimate-sf`, {
     method: 'PATCH',
-    body: JSON.stringify({ estimate_sf: estimateSf }),
+    body: JSON.stringify(data),
   })
 }
 

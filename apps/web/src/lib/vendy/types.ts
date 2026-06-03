@@ -166,12 +166,45 @@ export interface V2CostCodeDoc {
   override_by: string | null
 }
 
+export interface SharedParamsData {
+  // Extracted values
+  first_floor_sf: number
+  second_floor_sf: number
+  third_floor_sf: number
+  basement_sf_finished: number
+  basement_sf_unfinished: number
+  garage_sf: number
+  first_floor_footprint_sf: number
+  total_finished_sf: number
+  bathroom_count_full: number
+  bathroom_count_half: number
+  // Planned/estimate values
+  estimate_sf?: number | null
+  estimate_sf_1st_floor?: number | null
+  estimate_sf_2nd_floor?: number | null
+  estimate_sf_basement?: number | null
+  // Diagnostics
+  confidence?: string
+  flags?: string[]
+  layers_found?: string[]
+  layers_missing?: string[]
+  bsmt_loaded?: boolean
+  pl2_loaded?: boolean
+  sf_validation?: string
+  sf_variance_pct?: number | null
+  floor_variances?: Record<string, number>
+  dxf_file?: string
+}
+
 export interface V2ProjectDetail extends V2ProjectSummary {
   reference_home_ids: string[]
   estimate_pdf_gcs_path: string | null
   validation_report: Record<string, unknown> | null
   cost_codes: V2CostCodeDoc[]
   estimate_sf?: number | null
+  estimate_sf_1st_floor?: number | null
+  estimate_sf_2nd_floor?: number | null
+  estimate_sf_basement?: number | null
   sf_variance_pct?: number | null
   sf_validation?: 'no_estimate' | 'ok' | 'warning' | 'error' | null
 }
