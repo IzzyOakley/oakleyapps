@@ -171,6 +171,9 @@ export interface V2ProjectDetail extends V2ProjectSummary {
   estimate_pdf_gcs_path: string | null
   validation_report: Record<string, unknown> | null
   cost_codes: V2CostCodeDoc[]
+  estimate_sf?: number | null
+  sf_variance_pct?: number | null
+  sf_validation?: 'no_estimate' | 'ok' | 'warning' | 'error' | null
 }
 
 export interface AirtableProjectOption {

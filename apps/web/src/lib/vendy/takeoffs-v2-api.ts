@@ -191,6 +191,18 @@ export async function updateSharedParams(
   })
 }
 
+// ── Estimate SF ───────────────────────────────────────────────────────────────
+
+export async function updateEstimateSF(
+  projectId: string,
+  estimateSf: number,
+): Promise<{ estimate_sf: number }> {
+  return v2Fetch<{ estimate_sf: number }>(`/projects/${projectId}/estimate-sf`, {
+    method: 'PATCH',
+    body: JSON.stringify({ estimate_sf: estimateSf }),
+  })
+}
+
 // ── Approval ──────────────────────────────────────────────────────────────────
 
 export async function approveTakeoffV2(projectId: string): Promise<{

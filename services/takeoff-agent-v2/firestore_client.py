@@ -71,6 +71,7 @@ def create_v2_project_batch(
     estimate_pdf_gcs_path: str | None = None,
     dxf_present: bool = False,
     dxf_gcs_path: str | None = None,
+    estimate_sf: float | None = None,
 ) -> None:
     """
     Atomically write apps/shared/projects, apps/vendy/v2_jobs,
@@ -131,6 +132,7 @@ def create_v2_project_batch(
             "preprocess_status": None,
             "validation_status": None,
             "validation_report": None,
+            "estimate_sf": estimate_sf,
             "created_by": created_by,
             "created_at": now,
             "updated_at": now,
@@ -143,6 +145,19 @@ def create_v2_project_batch(
         batch.set(cc_ref, {**doc, "updated_at": now})
 
     batch.commit()
+
+
+def update_estimate_sf(project_id: str, estimate_sf: float) -> None:
+    """Update the estimate_sf field on the v2_jobs document."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    (
+        db.collection("apps")
+        .document("vendy")
+        .collection("v2_jobs")
+        .document(project_id)
+        .update({"estimate_sf": estimate_sf, "updated_at": now})
+    )
 
 
 # ── Phase 9 helpers ───────────────────────────────────────────────────────────

@@ -31,6 +31,8 @@ from agents.validation import ValidationAgent
 from airtable_client import AirtableClient
 from dxf_processor import DXFProcessor
 from estimate_parser import EstimateParseError, EstimateParser
+from pydantic import BaseModel
+
 from schemas import (
     AirtableProject,
     CreateFromAirtableRequest,
@@ -38,6 +40,11 @@ from schemas import (
     SharedParams,
     V2Project,
 )
+
+
+class EstimateSFRequest(BaseModel):
+    estimate_sf: float
+
 
 INTERNAL_SERVICE_SECRET = os.environ.get(
     "INTERNAL_SERVICE_SECRET", "oakley-internal-dev"
@@ -529,6 +536,7 @@ async def preprocess_project(
     t0 = time.monotonic()
     tmp_path: str | None = None
     bsmt_tmp_path: str | None = None
+    pl2_tmp_path: str | None = None
 
     try:
         tmp_path = gcs.download_dxf_to_temp(dxf_gcs_path)
@@ -541,9 +549,18 @@ async def preprocess_project(
             except Exception:
                 bsmt_tmp_path = None  # non-fatal
 
+        # Attempt to also download pl2 DXF (non-fatal if not found).
+        pl2_info = gcs.check_dxf_present(job_name, file_hint="pl2")
+        if pl2_info["dxf_present"] and pl2_info["dxf_gcs_path"] != dxf_gcs_path:
+            try:
+                pl2_tmp_path = gcs.download_dxf_to_temp(pl2_info["dxf_gcs_path"])
+            except Exception:
+                pl2_tmp_path = None  # non-fatal
+
         processor = DXFProcessor(tmp_path)
         shared_params: SharedParams = processor.extract_shared_params(
-            bsmt_file_path=bsmt_tmp_path
+            bsmt_file_path=bsmt_tmp_path,
+            pl2_file_path=pl2_tmp_path,
         )
     except Exception as exc:
         fs.save_preprocess_result(project_id, {}, "failed")
@@ -566,9 +583,32 @@ async def preprocess_project(
             os.unlink(tmp_path)
         if bsmt_tmp_path and os.path.exists(bsmt_tmp_path):
             os.unlink(bsmt_tmp_path)
+        if pl2_tmp_path and os.path.exists(pl2_tmp_path):
+            os.unlink(pl2_tmp_path)
 
     params_dict = shared_params.model_dump()
     params_dict["dxf_gcs_path"] = dxf_gcs_path
+
+    # ── SF validation against estimate_sf ────────────────────────────────────
+    job_doc = fs.get_v2_project(project_id)
+    estimate_sf = (job_doc or {}).get("estimate_sf")
+    sf_variance: float | None = None
+    sf_validation = "no_estimate"
+
+    if estimate_sf and estimate_sf > 0 and shared_params.total_finished_sf > 0:
+        diff_pct = (
+            abs(shared_params.total_finished_sf - estimate_sf) / estimate_sf * 100
+        )
+        sf_variance = round(diff_pct, 1)
+        if diff_pct <= 5:
+            sf_validation = "ok"
+        elif diff_pct <= 15:
+            sf_validation = "warning"
+        else:
+            sf_validation = "error"
+
+    params_dict["sf_variance_pct"] = sf_variance
+    params_dict["sf_validation"] = sf_validation
 
     fs.save_preprocess_result(project_id, params_dict, "complete")
 
@@ -593,6 +633,9 @@ async def preprocess_project(
         "preprocess_status": "complete",
         "shared_params": params_dict,
         "run_id": run_id,
+        "estimate_sf": estimate_sf,
+        "sf_variance_pct": sf_variance,
+        "sf_validation": sf_validation,
     }
 
 
@@ -1265,6 +1308,31 @@ async def update_shared_params_endpoint(
         fs.update_shared_params, project_id, numeric_updates
     )
     return updated
+
+
+# ── PATCH /v2/projects/{project_id}/estimate-sf ──────────────────────────────
+
+
+@app.patch("/v2/projects/{project_id}/estimate-sf")
+async def update_estimate_sf(
+    project_id: str,
+    body: EstimateSFRequest,
+    user: dict = Depends(require_pm),
+) -> dict:
+    """
+    Set or update the estimate_sf field on a v2_jobs document.
+
+    estimate_sf is the planned square footage entered by the PM. It is used
+    during preprocess to validate DXF extraction accuracy.
+
+    Returns 404 if the project is not found.
+    """
+    if fs.get_v2_project(project_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Project '{project_id}' not found."
+        )
+    await asyncio.to_thread(fs.update_estimate_sf, project_id, body.estimate_sf)
+    return {"estimate_sf": body.estimate_sf}
 
 
 # ── POST /v2/projects/{project_id}/approve (13.3) ────────────────────────────

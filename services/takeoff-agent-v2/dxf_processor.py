@@ -39,13 +39,20 @@ class DXFProcessor:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def extract_shared_params(self, bsmt_file_path: str | None = None) -> SharedParams:
+    def extract_shared_params(
+        self,
+        bsmt_file_path: str | None = None,
+        pl2_file_path: str | None = None,
+    ) -> SharedParams:
         """
         Parse the DXF file and return a SharedParams object.
 
         bsmt_file_path — optional path to a basement DXF file. When supplied,
         the two largest STD-AREA LWPOLYLINEs in that file are used to populate
         basement_sf_finished (larger) and basement_sf_unfinished (smaller).
+
+        pl2_file_path — optional path to a second-floor DXF file. When supplied,
+        WC-STD blocks in that file are added to bathroom_count_full/half totals.
 
         Never raises — all per-parameter errors are caught and recorded in
         SharedParams.flags so the pipeline continues with partial data.
@@ -99,10 +106,14 @@ class DXFProcessor:
             params.basement_sf_finished = 0.0
             params.basement_sf_unfinished = 0.0
 
-        # ── Footprint — P-BLDG or largest STD-AREA polygon ───────────────────
-        params.first_floor_footprint_sf = self._extract_area(
-            "first_floor_footprint_sf", flags
-        )
+        # ── Footprint — use first floor SF (same footprint for Oakley houses) ──
+        # P-BLDG layer sums too many polygons (walls, rooms) — not reliable.
+        if params.first_floor_sf > 0:
+            params.first_floor_footprint_sf = params.first_floor_sf
+        else:
+            params.first_floor_footprint_sf = self._extract_area(
+                "first_floor_footprint_sf", flags
+            )
 
         # ── Derived total finished SF ─────────────────────────────────────────
         if total_from_mtext > 0:
@@ -121,6 +132,15 @@ class DXFProcessor:
 
         params.bathroom_count_full = self._extract_block_count("bathroom_count_full")
         params.bathroom_count_half = self._extract_block_count("bathroom_count_half")
+
+        # ── Add bathrooms from pl2 if provided ───────────────────────────────
+        if pl2_file_path:
+            params.bathroom_count_full += self._count_blocks_in_file(
+                pl2_file_path, "bathroom_count_full"
+            )
+            params.bathroom_count_half += self._count_blocks_in_file(
+                pl2_file_path, "bathroom_count_half"
+            )
         params.has_detached_garage = self._has_entities_on_layers("has_detached_garage")
 
         params.layers_found, params.layers_missing = self._discover_layers()
@@ -307,6 +327,25 @@ class DXFProcessor:
             pass
 
         return count
+
+    def _count_blocks_in_file(self, file_path: str, param_name: str) -> int:
+        """Count INSERT entities matching block_patterns in an external DXF file."""
+        try:
+            doc = ezdxf.readfile(file_path)
+            config = DXF_LAYER_CONFIG.get(param_name, {})
+            patterns = [p.upper() for p in config.get("block_patterns", [])]
+            count = 0
+            for entity in doc.modelspace():
+                if entity.dxftype() != "INSERT":
+                    continue
+                block_name = (
+                    entity.dxf.name.upper() if entity.dxf.hasattr("name") else ""
+                )
+                if any(p in block_name for p in patterns):
+                    count += 1
+            return count
+        except Exception:
+            return 0
 
     def _has_entities_on_layers(self, param_name: str) -> bool:
         """Return True if any entity exists on any of the configured target layers."""

@@ -24,7 +24,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
-import { approveTakeoffV2, getSharedParams, getV2Project, runAllAgents, runPreprocess, updateSharedParams } from '@/lib/vendy/takeoffs-v2-api'
+import { approveTakeoffV2, getSharedParams, getV2Project, runAllAgents, runPreprocess, updateEstimateSF, updateSharedParams } from '@/lib/vendy/takeoffs-v2-api'
 import type { V2CostCodeDoc, V2ProjectDetail } from '@/lib/vendy/types'
 
 interface Props {
@@ -251,6 +251,10 @@ export default function ProjectDetailV2Client({ initialProject, projectId }: Pro
           loading={preprocessLoading}
           onRun={handlePreprocess}
           showDxfHint={hasDxfPending && project.preprocess_status !== 'complete'}
+          estimateSf={project.estimate_sf ?? null}
+          sfVariancePct={project.sf_variance_pct ?? null}
+          sfValidation={project.sf_validation ?? null}
+          onEstimateSfChange={(val) => setProject(p => ({ ...p, estimate_sf: val }))}
         />
       )}
 
@@ -345,6 +349,10 @@ function PreprocessCard({
   loading,
   onRun,
   showDxfHint,
+  estimateSf,
+  sfVariancePct,
+  sfValidation,
+  onEstimateSfChange,
 }: {
   projectId: string
   status: string | null | undefined
@@ -352,6 +360,10 @@ function PreprocessCard({
   loading: boolean
   onRun: () => void
   showDxfHint: boolean
+  estimateSf: number | null
+  sfVariancePct: number | null
+  sfValidation: 'no_estimate' | 'ok' | 'warning' | 'error' | null
+  onEstimateSfChange: (val: number | null) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [params, setParams] = useState<Record<string, number> | null>(null)
@@ -360,6 +372,22 @@ function PreprocessCard({
   const [saveLoading, setSaveLoading] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [estimateSfInput, setEstimateSfInput] = useState(estimateSf != null ? String(estimateSf) : '')
+  const [estimateSfSaved, setEstimateSfSaved] = useState(false)
+
+  async function handleEstimateSfBlur() {
+    const parsed = parseFloat(estimateSfInput)
+    if (isNaN(parsed) || parsed <= 0) return
+    if (parsed === estimateSf) return
+    try {
+      await updateEstimateSF(projectId, parsed)
+      onEstimateSfChange(parsed)
+      setEstimateSfSaved(true)
+      setTimeout(() => setEstimateSfSaved(false), 2000)
+    } catch {
+      // non-fatal
+    }
+  }
 
   async function handleToggle() {
     const next = !expanded
@@ -502,6 +530,57 @@ function PreprocessCard({
       {/* Expanded content */}
       {expanded && (
         <div className="border-t border-border px-5 pb-5 pt-4">
+          {/* Estimated SF input */}
+          <div className="mb-4">
+            <div className="flex justify-between items-start mb-1">
+              <div>
+                <span className="text-[12px] font-medium text-text-primary">Estimated SF</span>
+                <p className="text-[11px] text-text-muted">Enter the planned square footage — used to verify DXF extraction accuracy</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {estimateSfSaved && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-success">
+                    <CheckCircle size={11} /> Saved
+                  </span>
+                )}
+                <input
+                  type="number"
+                  disabled={isLocked}
+                  value={estimateSfInput}
+                  onChange={e => { setEstimateSfInput(e.target.value); setEstimateSfSaved(false) }}
+                  onBlur={handleEstimateSfBlur}
+                  placeholder="e.g. 3628"
+                  className="w-28 text-right text-[13px] font-medium text-text-primary bg-transparent border border-border rounded-md px-2 py-1 focus:outline-none focus:border-primary disabled:opacity-50"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SF validation banner */}
+          {status === 'complete' && sfValidation && sfValidation !== 'no_estimate' && (
+            <div className={`mb-4 flex items-start gap-2 px-3 py-2.5 rounded-xl text-[11px] ${
+              sfValidation === 'ok'
+                ? 'bg-success-bg border border-success/20 text-success'
+                : sfValidation === 'warning'
+                  ? 'bg-warning-bg border border-warning/20 text-warning'
+                  : 'bg-danger-bg border border-danger/20 text-danger'
+            }`}>
+              {sfValidation === 'ok' && <CheckCircle size={13} className="shrink-0 mt-0.5" />}
+              {sfValidation === 'warning' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+              {sfValidation === 'error' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+              <span>
+                {sfValidation === 'ok' && 'Extracted SF is within 5% of your estimate'}
+                {sfValidation === 'warning' && `Extracted SF is ${sfVariancePct}% off your estimate — review values below`}
+                {sfValidation === 'error' && `Extracted SF is ${sfVariancePct}% off your estimate — review the extracted values below before running agents`}
+              </span>
+            </div>
+          )}
+          {status === 'complete' && (!sfValidation || sfValidation === 'no_estimate') && (
+            <div className="mb-4 px-3 py-2 rounded-xl text-[11px] text-text-muted bg-surface-raised border border-border">
+              Set an estimated SF above to enable automatic accuracy checking
+            </div>
+          )}
+
           {status !== 'complete' ? (
             <p className="text-[12px] text-text-muted">
               Run &ldquo;Read Blueprint Dimensions&rdquo; first to see extracted values.
